@@ -1,7 +1,7 @@
 # Xiaohongshu scraper module
-# Version: 2.0 - Search-only mode, no post detail clicks (anti-bot bypass)
-# Updated: Completely redesigned to extract all data from search result cards
-# Changes: Removed scrape_post(), added verified CSS selectors, session detection
+# Version: 2.3 - Added log file output alongside JSON results
+# Changes: save_results now creates a .log file with all progress messages next to .json
+# Previous: Added skip_videos filter support with detailed logging for filtered posts
 
 import asyncio
 import json
@@ -22,6 +22,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, 'output')
 SELECTORS = {
     'card': 'section.note-item',
     'permanent_link': 'a[href^="/explore/"]',
+    'tokenized_link': 'a.cover',  # Has full href with xsec_token parameter
     'title': '.footer a.title span',
     'author_name': '.name-time-wrapper .name',
     'author_avatar': 'img.author-avatar',
@@ -29,6 +30,8 @@ SELECTORS = {
     'likes_count': '.like-wrapper .count',
     'cover_image': 'a.cover img',
     'publish_date': '.name-time-wrapper .time',
+    # Video detection - play icon overlay on card
+    'video_icon': 'svg.play-icon, .play-icon, span.play-icon, [class*="video-icon"]',
     # Login detection selectors
     'qr_code': '.qrcode-container, .qrcode-img',
     'login_modal': '.login-container',
@@ -140,12 +143,26 @@ class XHSScraper:
 
                 cards.forEach(card => {
                     try {
-                        // Get note ID from hidden permanent link (most reliable)
+                        // Get tokenized URL from a.cover (has xsec_token parameter)
+                        // On search pages: /search_result/xxx?xsec_token=...
+                        // On feed pages: /explore/xxx?xsec_token=...
+                        const coverLink = card.querySelector('a.cover');
+                        const tokenizedPath = coverLink ? coverLink.getAttribute('href') : '';
+
+                        // Extract note ID from the tokenized path (handles both /search_result/ and /explore/)
                         let noteId = null;
-                        const permLink = card.querySelector('a[href^="/explore/"]');
-                        if (permLink) {
-                            const match = permLink.href.match(/\\/explore\\/([a-f0-9]+)/);
-                            if (match) noteId = match[1];
+                        if (tokenizedPath) {
+                            const match = tokenizedPath.match(/\\/(search_result|explore)\\/([a-f0-9]+)/);
+                            if (match) noteId = match[2];
+                        }
+
+                        // Fallback: get from hidden permanent link
+                        if (!noteId) {
+                            const permLink = card.querySelector('a[href^="/explore/"]');
+                            if (permLink) {
+                                const match = permLink.href.match(/\\/explore\\/([a-f0-9]+)/);
+                                if (match) noteId = match[1];
+                            }
                         }
 
                         // Fallback: get from search_result link
@@ -158,6 +175,11 @@ class XHSScraper:
                         }
 
                         if (!noteId) return;
+
+                        // Build full tokenized URL
+                        const tokenizedUrl = tokenizedPath
+                            ? 'https://www.xiaohongshu.com' + tokenizedPath
+                            : '';
 
                         // Title
                         const titleEl = card.querySelector('.footer a.title span');
@@ -202,8 +224,12 @@ class XHSScraper:
                         const cardWidth = parseInt(card.getAttribute('data-width')) || 0;
                         const cardHeight = parseInt(card.getAttribute('data-height')) || 0;
 
+                        // Video detection - check for play icon overlay
+                        const hasVideoIcon = card.querySelector('svg.play-icon, .play-icon, span.play-icon, [class*="video-icon"]') !== null;
+
                         results.push({
                             noteId,
+                            tokenizedUrl,
                             title,
                             authorName,
                             authorAvatar,
@@ -212,7 +238,8 @@ class XHSScraper:
                             coverImage,
                             publishDate,
                             cardWidth,
-                            cardHeight
+                            cardHeight,
+                            isVideo: hasVideoIcon
                         });
                     } catch (e) {
                         // Skip this card on error
@@ -231,6 +258,7 @@ class XHSScraper:
                     post = XHSPost(
                         note_id=item['noteId'],
                         permanent_url=f"https://www.xiaohongshu.com/explore/{item['noteId']}",
+                        tokenized_url=item['tokenizedUrl'],  # Full URL with xsec_token
                         title=item['title'],
                         author=item['authorName'],
                         author_avatar=item['authorAvatar'],
@@ -239,7 +267,8 @@ class XHSScraper:
                         cover_image=item['coverImage'],
                         publish_date=item['publishDate'],
                         card_width=item['cardWidth'],
-                        card_height=item['cardHeight']
+                        card_height=item['cardHeight'],
+                        is_video=item['isVideo']  # Video detection flag
                     )
                     posts.append(post)
                     new_count += 1
@@ -276,12 +305,17 @@ class XHSScraper:
         """
         if progress_callback:
             await progress_callback(f"Starting search for '{keyword}'...")
-            await progress_callback(f"Filter: min_likes={filters.min_likes}, max_posts={filters.max_posts}")
+            filter_info = f"Filter: min_likes={filters.min_likes}, max_posts={filters.max_posts}"
+            if filters.skip_videos:
+                filter_info += ", skip_videos=ON (only images)"
+            await progress_callback(filter_info)
             if filters.min_collects > 0 or filters.min_comments > 0:
                 await progress_callback("NOTE: min_collects and min_comments filters are IGNORED in search-only mode")
 
         # Get more results than needed to account for filtering
-        fetch_count = filters.max_posts * 2 if filters.min_likes > 0 else filters.max_posts
+        # Fetch extra if filtering by likes or skipping videos
+        needs_extra = filters.min_likes > 0 or filters.skip_videos
+        fetch_count = filters.max_posts * 3 if needs_extra else filters.max_posts
 
         all_posts = await self.search_and_extract(
             keyword=keyword,
@@ -295,6 +329,8 @@ class XHSScraper:
 
         # Apply filters
         filtered_posts = []
+        videos_skipped = 0
+        likes_filtered = 0
         for post in all_posts:
             if len(filtered_posts) >= filters.max_posts:
                 break
@@ -302,27 +338,42 @@ class XHSScraper:
             if filters.passes(post):
                 filtered_posts.append(post)
                 if progress_callback:
-                    await progress_callback(f"  + Kept: {post.title[:30]}... (likes={post.likes})")
+                    post_type = "📹" if post.is_video else "📷"
+                    await progress_callback(f"  + Kept {post_type}: {post.title[:30]}... (likes={post.likes})")
             else:
-                if progress_callback:
-                    await progress_callback(f"  - Filtered out: {post.title[:30]}... (likes={post.likes} < {filters.min_likes})")
+                # Determine why it was filtered
+                if filters.skip_videos and post.is_video:
+                    videos_skipped += 1
+                    if progress_callback:
+                        await progress_callback(f"  - Skipped video: {post.title[:30]}...")
+                elif post.likes < filters.min_likes:
+                    likes_filtered += 1
+                    if progress_callback:
+                        await progress_callback(f"  - Low likes: {post.title[:30]}... (likes={post.likes} < {filters.min_likes})")
 
         if progress_callback:
-            await progress_callback(f"After filtering: {len(filtered_posts)} posts kept (from {len(all_posts)} found)")
+            summary = f"After filtering: {len(filtered_posts)} posts kept (from {len(all_posts)} found)"
+            if videos_skipped > 0 or likes_filtered > 0:
+                summary += f" | Filtered: {videos_skipped} videos, {likes_filtered} low-likes"
+            await progress_callback(summary)
 
         return filtered_posts
 
 
-def save_results(posts: List[XHSPost], keyword: str, account_id: int) -> str:
-    """Save scrape results to JSON file"""
+def save_results(posts: List[XHSPost], keyword: str, account_id: int, logs: List[str] = None) -> Tuple[str, str]:
+    """
+    Save scrape results to JSON file and logs to a companion .log file.
+    Returns tuple of (json_filepath, log_filepath).
+    """
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
 
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     safe_keyword = re.sub(r'[^\w\u4e00-\u9fff]', '_', keyword)
-    filename = f"{safe_keyword}_account{account_id}_{timestamp}.json"
-    filepath = os.path.join(OUTPUT_DIR, filename)
+    base_filename = f"{safe_keyword}_account{account_id}_{timestamp}"
 
+    # Save JSON results
+    json_filepath = os.path.join(OUTPUT_DIR, f"{base_filename}.json")
     results = {
         "keyword": keyword,
         "account_id": account_id,
@@ -331,11 +382,29 @@ def save_results(posts: List[XHSPost], keyword: str, account_id: int) -> str:
         "total_posts": len(posts),
         "posts": [post.to_dict() for post in posts]
     }
-
-    with open(filepath, 'w', encoding='utf-8') as f:
+    with open(json_filepath, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
-    return filepath
+    # Save log file alongside JSON
+    log_filepath = os.path.join(OUTPUT_DIR, f"{base_filename}.log")
+    log_content = [
+        f"=== XHS Scrape Log ===",
+        f"Keyword: {keyword}",
+        f"Account ID: {account_id}",
+        f"Timestamp: {datetime.now().isoformat()}",
+        f"Total posts saved: {len(posts)}",
+        f"",
+        f"=== Progress Log ===",
+    ]
+    if logs:
+        log_content.extend(logs)
+    else:
+        log_content.append("(No log messages recorded)")
+
+    with open(log_filepath, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(log_content))
+
+    return json_filepath, log_filepath
 
 
 async def run_scrape_task(
@@ -345,22 +414,30 @@ async def run_scrape_task(
     filters: ScrapeFilter,
     progress_callback=None,
     cancel_check=None
-) -> Tuple[List[XHSPost], str]:
+) -> Tuple[List[XHSPost], str, str]:
     """
     Run a complete scrape task.
-    Returns (posts, output_filepath).
+    Returns (posts, json_filepath, log_filepath).
     Supports cancellation via cancel_check callback.
     """
     scraper = XHSScraper(context)
+    collected_logs: List[str] = []
+
+    # Wrapper to collect logs while still calling the original callback
+    async def log_collecting_callback(message: str):
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        collected_logs.append(f"[{timestamp}] {message}")
+        if progress_callback:
+            await progress_callback(message)
 
     try:
         await scraper.init_page()
-        posts = await scraper.search_and_scrape(keyword, filters, progress_callback, cancel_check)
+        posts = await scraper.search_and_scrape(keyword, filters, log_collecting_callback, cancel_check)
 
-        # Save results even if cancelled (partial results)
-        filepath = save_results(posts, keyword, account_id)
+        # Save results and logs even if cancelled (partial results)
+        json_filepath, log_filepath = save_results(posts, keyword, account_id, collected_logs)
 
-        return posts, filepath
+        return posts, json_filepath, log_filepath
 
     finally:
         await scraper.close()

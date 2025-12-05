@@ -1,6 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.2 - REST API endpoints for account, browser, and scraping management
-# Updated: Added SSE for real-time logs, cancel scrape, delete results endpoints
+# Version: 1.4 - Log files now saved alongside JSON results
+# Changes: run_scrape_task now returns log_filepath, completion message shows both output files
+# Previous: Added skip_videos filter option to scrape endpoint
 
 import os
 import json
@@ -54,6 +55,7 @@ class ScrapeRequest(BaseModel):
     min_likes: int = 0
     min_collects: int = 0
     min_comments: int = 0
+    skip_videos: bool = False  # Skip video posts, keep only image posts
 
 class ScrapeResponse(BaseModel):
     success: bool
@@ -333,7 +335,8 @@ async def start_scrape(request: ScrapeRequest):
         min_likes=request.min_likes,
         min_collects=request.min_collects,
         min_comments=request.min_comments,
-        max_posts=request.max_posts
+        max_posts=request.max_posts,
+        skip_videos=request.skip_videos
     )
 
     # Define progress callback
@@ -345,7 +348,7 @@ async def start_scrape(request: ScrapeRequest):
         try:
             await scrape_manager.send_log(task_id, f"Starting scrape for '{request.keyword}'...")
 
-            posts, filepath = await run_scrape_task(
+            posts, json_filepath, log_filepath = await run_scrape_task(
                 context=context,
                 keyword=request.keyword,
                 account_id=request.account_id,
@@ -358,7 +361,9 @@ async def start_scrape(request: ScrapeRequest):
                 await scrape_manager.send_log(task_id, f"Scrape cancelled. Saved {len(posts)} posts.")
                 scrape_manager.complete_scrape(task_id, "cancelled")
             else:
-                await scrape_manager.send_log(task_id, f"Scrape complete! Found {len(posts)} posts. Saved to {filepath}")
+                await scrape_manager.send_log(task_id, f"Scrape complete! Found {len(posts)} posts.")
+                await scrape_manager.send_log(task_id, f"Results saved to: {json_filepath}")
+                await scrape_manager.send_log(task_id, f"Log saved to: {log_filepath}")
                 scrape_manager.complete_scrape(task_id, "completed")
         except asyncio.CancelledError:
             await scrape_manager.send_log(task_id, "Scrape cancelled by user")
