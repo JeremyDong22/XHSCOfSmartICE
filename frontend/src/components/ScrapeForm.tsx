@@ -1,28 +1,30 @@
 // Scrape form component for starting scraping tasks
-// Version: 2.0 - Anthropic-inspired dark theme with terracotta primary button
+// Version: 3.0 - Redesigned to dispatch tasks to accounts, console moved to account cards
 
 'use client';
 
 import { useState } from 'react';
-import { Account, startScrapeAsync, cancelScrape } from '@/lib/api';
-import LogConsole from './LogConsole';
+import { Account, startScrapeAsync } from '@/lib/api';
+import { ActiveTask } from './AccountCardWithConsole';
 
 interface ScrapeFormProps {
   accounts: Account[];
-  onComplete: () => void;
+  activeTasks: Map<number, ActiveTask>;
+  onTaskStart: (accountId: number, task: ActiveTask) => void;
 }
 
-export default function ScrapeForm({ accounts, onComplete }: ScrapeFormProps) {
+export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: ScrapeFormProps) {
   const [loading, setLoading] = useState(false);
-  const [taskId, setTaskId] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
 
   const [accountId, setAccountId] = useState<number>(0);
   const [keyword, setKeyword] = useState('');
   const [maxPosts, setMaxPosts] = useState(20);
   const [minLikes, setMinLikes] = useState(0);
 
-  const availableAccounts = accounts.filter(a => a.browser_open);
+  // Available accounts: browser open and not currently running a task
+  const availableAccounts = accounts.filter(a =>
+    a.browser_open && !activeTasks.has(a.account_id)
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,8 +39,6 @@ export default function ScrapeForm({ accounts, onComplete }: ScrapeFormProps) {
     }
 
     setLoading(true);
-    setResult(null);
-    setTaskId(null);
 
     try {
       const response = await startScrapeAsync({
@@ -50,29 +50,22 @@ export default function ScrapeForm({ accounts, onComplete }: ScrapeFormProps) {
         min_comments: 0,
       });
 
-      setTaskId(response.task_id);
+      // Dispatch task to the account
+      onTaskStart(accountId, {
+        taskId: response.task_id,
+        keyword: keyword.trim(),
+        startedAt: new Date(),
+      });
+
+      // Reset form for next task
+      setAccountId(0);
+      setKeyword('');
     } catch (error) {
       console.error('Scrape failed:', error);
       alert(error instanceof Error ? error.message : 'Scrape failed');
+    } finally {
       setLoading(false);
     }
-  };
-
-  const handleStop = async () => {
-    if (!taskId) return;
-
-    try {
-      await cancelScrape(taskId);
-    } catch (error) {
-      console.error('Cancel failed:', error);
-      alert(error instanceof Error ? error.message : 'Failed to cancel');
-    }
-  };
-
-  const handleLogComplete = (status: string) => {
-    setLoading(false);
-    setResult(status === 'completed' ? 'Scrape completed successfully!' : `Scrape ${status}`);
-    onComplete();
   };
 
   return (
@@ -81,9 +74,14 @@ export default function ScrapeForm({ accounts, onComplete }: ScrapeFormProps) {
         Start Scraping Task
       </h2>
 
-      {availableAccounts.length === 0 ? (
+      {accounts.filter(a => a.browser_open).length === 0 ? (
         <div className="text-center py-8 text-stone-500 text-sm">
           <p>No browsers open. Open a browser first to start scraping.</p>
+        </div>
+      ) : availableAccounts.length === 0 ? (
+        <div className="text-center py-8 text-stone-500 text-sm">
+          <p>All open browsers are currently running tasks.</p>
+          <p className="mt-2 text-xs">Wait for a task to complete or open another browser.</p>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
@@ -161,37 +159,21 @@ export default function ScrapeForm({ accounts, onComplete }: ScrapeFormProps) {
             </p>
           </div>
 
-          {/* Submit/Stop buttons */}
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 py-3 bg-[#D97757] text-white font-medium rounded-lg transition-all hover:bg-[#E8886A] disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Scraping...' : 'Start Scraping'}
-            </button>
-            {loading && (
-              <button
-                type="button"
-                onClick={handleStop}
-                className="px-6 py-3 bg-[rgba(239,68,68,0.2)] text-red-300 border border-[rgba(239,68,68,0.3)] font-medium rounded-lg transition-all hover:bg-[rgba(239,68,68,0.3)]"
-              >
-                Stop
-              </button>
-            )}
-          </div>
+          {/* Submit button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 bg-[#D97757] text-white font-medium rounded-lg transition-all hover:bg-[#E8886A] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Starting...' : 'Start Scraping'}
+          </button>
 
-          {/* Log console */}
-          {taskId && (
-            <div className="mt-4">
-              <LogConsole taskId={taskId} onComplete={handleLogComplete} />
-            </div>
-          )}
-
-          {/* Result */}
-          {result && !loading && (
-            <div className="mt-4 p-4 bg-[rgba(16,185,129,0.15)] border border-[rgba(16,185,129,0.25)] rounded-lg">
-              <p className="text-emerald-300 font-medium text-sm">{result}</p>
+          {/* Active tasks info */}
+          {activeTasks.size > 0 && (
+            <div className="pt-4 border-t border-stone-700">
+              <p className="text-xs text-stone-500 font-mono">
+                {activeTasks.size} task{activeTasks.size > 1 ? 's' : ''} running. See console logs below each account.
+              </p>
             </div>
           )}
         </form>

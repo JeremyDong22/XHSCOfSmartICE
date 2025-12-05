@@ -1,11 +1,7 @@
 /* XHS Dashboard Global Styles
-   Version: 2.0 - Anthropic-inspired dark theme with custom fonts */
+   Version: 2.3 - Tailwind v4 with Next.js font variables */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
-
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
 /* Custom properties for the design system */
 :root {
@@ -49,7 +45,7 @@
 
 /* Base styles */
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--font-inter), -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--bg-base);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -58,7 +54,7 @@ body {
 
 /* Monospace font utility */
 .font-mono {
-  font-family: 'JetBrains Mono', 'SF Mono', 'Consolas', monospace;
+  font-family: var(--font-mono), 'SF Mono', 'Consolas', monospace;
 }
 
 /* Custom scrollbar for dark theme */
