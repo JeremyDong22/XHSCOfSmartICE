@@ -1,7 +1,12 @@
 # Backend dependencies for XHS Multi-Account Scraper API
-# Version: 1.0
+# Version: 1.1 - Added PostgreSQL database support
 
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.5.0
 playwright>=1.40.0
+
+# Database - PostgreSQL with async SQLAlchemy
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+greenlet>=3.0.0
