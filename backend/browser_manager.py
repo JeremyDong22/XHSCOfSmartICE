@@ -1,13 +1,19 @@
 # Browser manager for XHS multi-account system
-# Version: 1.2 - Playwright browser lifecycle management
-# Updated: Added 5s timeout for browser close with force-kill fallback
+# Version: 1.3 - Added database tracking for browser sessions and usage stats
+# Changes: Track browser open/close in database, update AccountUsageStats
+# Previous: Added 5s timeout for browser close with force-kill fallback
 
 import asyncio
 import subprocess
 import platform
 from typing import Dict, Optional, Callable
+from datetime import datetime
 from playwright.async_api import async_playwright, BrowserContext, Page, Playwright
 from account_manager import AccountManager
+
+# Database imports
+from database import get_database
+from database.repositories import BrowserSessionRepository, AccountRepository, StatsRepository
 
 
 class BrowserManager:
@@ -18,6 +24,7 @@ class BrowserManager:
         self.playwright: Optional[Playwright] = None
         self.contexts: Dict[int, BrowserContext] = {}
         self.pages: Dict[int, Page] = {}
+        self.session_ids: Dict[int, int] = {}  # Track database session IDs per account
         self._running = False
 
     async def start(self):
@@ -92,6 +99,9 @@ class BrowserManager:
             # Update last used timestamp
             self.account_manager.mark_account_used(account_id)
 
+            # Track browser session in database
+            await self._track_browser_open(account_id)
+
             return True
 
         except Exception as e:
@@ -154,17 +164,24 @@ class BrowserManager:
             return False
 
         context = self.contexts[account_id]
+        close_reason = "manual"
 
         try:
             # Try graceful close with timeout
             await asyncio.wait_for(context.close(), timeout=timeout)
+            close_reason = "graceful"
         except asyncio.TimeoutError:
             print(f"Browser {account_id} close timed out after {timeout}s, force killing...")
             # Force kill the browser process for this account
             self._force_kill_browser_for_account(account_id)
+            close_reason = "force_killed"
         except Exception as e:
             print(f"Error closing browser for account {account_id}: {e}")
             self._force_kill_browser_for_account(account_id)
+            close_reason = "crash"
+
+        # Track browser close in database
+        await self._track_browser_close(account_id, close_reason)
 
         # Clean up our tracking regardless of how it closed
         if account_id in self.contexts:
@@ -359,3 +376,78 @@ class BrowserManager:
             pass
 
         return count
+
+    # Database tracking methods
+    async def _track_browser_open(self, account_id: int):
+        """Track browser open in database"""
+        try:
+            db = get_database()
+            async with db.session() as session:
+                # Create or get account in DB
+                account_repo = AccountRepository(session)
+                await account_repo.get_or_create(account_id)
+
+                # Start browser session
+                browser_repo = BrowserSessionRepository(session)
+                browser_session = await browser_repo.start_session(account_id)
+                self.session_ids[account_id] = browser_session.id
+
+                # Increment account's total browser opens
+                await account_repo.increment_stats(
+                    account_id,
+                    browser_opens=1
+                )
+
+                # Update hourly stats
+                hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+                stats_repo = StatsRepository(session)
+                await stats_repo.record_stats(
+                    account_id=account_id,
+                    period_type="hour",
+                    period_start=hour_start,
+                    browser_opens=1
+                )
+
+        except Exception as e:
+            print(f"Error tracking browser open in database: {e}")
+
+    async def _track_browser_close(self, account_id: int, close_reason: str):
+        """Track browser close in database"""
+        try:
+            db = get_database()
+            async with db.session() as session:
+                browser_repo = BrowserSessionRepository(session)
+                session_id = self.session_ids.get(account_id)
+
+                if session_id:
+                    # End the browser session
+                    browser_session = await browser_repo.end_session(session_id, close_reason)
+
+                    if browser_session and browser_session.duration_seconds:
+                        # Update account's total browser duration
+                        account_repo = AccountRepository(session)
+                        await account_repo.increment_stats(
+                            account_id,
+                            browser_duration_seconds=browser_session.duration_seconds
+                        )
+
+                        # Update hourly stats
+                        hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+                        stats_repo = StatsRepository(session)
+                        await stats_repo.record_stats(
+                            account_id=account_id,
+                            period_type="hour",
+                            period_start=hour_start,
+                            browser_closes=1,
+                            browser_duration_seconds=browser_session.duration_seconds
+                        )
+
+                    # Clean up session tracking
+                    if account_id in self.session_ids:
+                        del self.session_ids[account_id]
+                else:
+                    # No session ID tracked, try to end by account
+                    await browser_repo.end_session_by_account(account_id, close_reason)
+
+        except Exception as e:
+            print(f"Error tracking browser close in database: {e}")

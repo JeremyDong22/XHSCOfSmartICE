@@ -1,10 +1,13 @@
 // Account card component with embedded console log for active scrape tasks
-// Version: 1.0 - Shows account info with console log underneath when task is running
+// Version: 1.1 - Added account stats display with usage alerts
+// Changes: Integrated AccountStatsDisplay component with auto-refresh every 30s
+// Previous: Shows account info with console log underneath when task is running
 
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Account, openBrowser, closeBrowser, deleteAccount, cancelScrape } from '@/lib/api';
+import { Account, AccountStats, openBrowser, closeBrowser, deleteAccount, cancelScrape, getAccountStats } from '@/lib/api';
+import AccountStatsDisplay from './AccountStatsDisplay';
 
 // Task info passed from parent
 export interface ActiveTask {
@@ -48,10 +51,33 @@ export default function AccountCardWithConsole({
   const [taskStatus, setTaskStatus] = useState<string>('running');
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Account stats state
+  const [stats, setStats] = useState<AccountStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
+
   // Handle task completion
   const handleComplete = useCallback((status: string) => {
     onTaskComplete(account.account_id, status);
   }, [account.account_id, onTaskComplete]);
+
+  // Load account stats with auto-refresh every 30 seconds
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const accountStats = await getAccountStats(account.account_id);
+        setStats(accountStats);
+      } catch (error) {
+        console.error('Failed to load account stats:', error);
+      } finally {
+        setStatsLoading(false);
+      }
+    };
+
+    loadStats();
+    const interval = setInterval(loadStats, 30000); // Refresh every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [account.account_id]);
 
   // SSE connection for logs
   useEffect(() => {
@@ -230,10 +256,10 @@ export default function AccountCardWithConsole({
           </div>
         )}
 
-        {/* Metadata */}
+        {/* Account Stats - Only show when not actively scraping */}
         {!activeTask && (
-          <div className="font-mono text-xs text-stone-500 mb-4">
-            Last used: {account.last_used ? new Date(account.last_used).toLocaleString() : 'Unknown'}
+          <div className="mb-4">
+            <AccountStatsDisplay stats={stats} loading={statsLoading} />
           </div>
         )}
 

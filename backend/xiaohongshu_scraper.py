@@ -1,7 +1,7 @@
 # Xiaohongshu scraper module
-# Version: 2.3 - Added log file output alongside JSON results
-# Changes: save_results now creates a .log file with all progress messages next to .json
-# Previous: Added skip_videos filter support with detailed logging for filtered posts
+# Version: 2.4 - Added database integration for post storage and deduplication
+# Changes: Save posts to PostgreSQL database, track new vs duplicate posts
+# Previous: Added log file output alongside JSON results
 
 import asyncio
 import json
@@ -13,6 +13,10 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 from playwright.async_api import Page, BrowserContext
 from data_models import XHSPost, ScrapeFilter, ScrapeTask
+
+# Database imports
+from database import get_database
+from database.repositories import PostRepository, AccountRepository, StatsRepository
 
 # Paths relative to project root (parent of backend/)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -300,48 +304,178 @@ class XHSScraper:
         cancel_check=None
     ) -> List[XHSPost]:
         """
-        Search for keyword, extract from cards, and apply filters.
-        This is the main entry point - wraps search_and_extract with filtering.
+        Search for keyword, extract from cards, and apply filters in real-time.
+        v2: 边抓边过滤，不再预抓3倍数量，更高效
         """
+        if not self.page:
+            await self.init_page()
+
         if progress_callback:
             await progress_callback(f"Starting search for '{keyword}'...")
-            filter_info = f"Filter: min_likes={filters.min_likes}, max_posts={filters.max_posts}"
+            filter_info = f"Filter: min_likes={filters.min_likes}, target={filters.max_posts} posts"
             if filters.skip_videos:
                 filter_info += ", skip_videos=ON (only images)"
             await progress_callback(filter_info)
             if filters.min_collects > 0 or filters.min_comments > 0:
                 await progress_callback("NOTE: min_collects and min_comments filters are IGNORED in search-only mode")
 
-        # Get more results than needed to account for filtering
-        # Fetch extra if filtering by likes or skipping videos
-        needs_extra = filters.min_likes > 0 or filters.skip_videos
-        fetch_count = filters.max_posts * 3 if needs_extra else filters.max_posts
+        # Navigate to search page
+        if progress_callback:
+            await progress_callback(f"Navigating to search for '{keyword}'...")
 
-        all_posts = await self.search_and_extract(
-            keyword=keyword,
-            max_results=fetch_count,
-            progress_callback=progress_callback,
-            cancel_check=cancel_check
-        )
+        search_url = f"https://www.xiaohongshu.com/search_result?keyword={quote(keyword)}&source=web_search_result_notes"
+        await self.page.goto(search_url)
+        await self.page.wait_for_load_state('networkidle')
+        await self._random_delay(2, 4)
 
-        if cancel_check and cancel_check():
-            return all_posts[:filters.max_posts]
+        # Check session status
+        session = await self.check_session()
+        if progress_callback:
+            await progress_callback(f"Session check: {'OK' if session['logged_in'] else 'WARNING - may need re-login'}")
 
-        # Apply filters
-        filtered_posts = []
+        # Real-time filtering variables
+        filtered_posts = []       # Posts that passed filters
+        seen_note_ids = set()     # Track duplicates
+        total_scanned = 0         # Total posts scanned
         videos_skipped = 0
         likes_filtered = 0
-        for post in all_posts:
-            if len(filtered_posts) >= filters.max_posts:
+        scroll_count = 0
+        no_new_posts_count = 0    # Consecutive scrolls with no new posts (for end detection)
+        max_no_new_posts = 3      # Stop after 3 consecutive scrolls with no new posts
+
+        # Main loop: scroll and filter until we have enough posts or page ends
+        while len(filtered_posts) < filters.max_posts:
+            # Check for cancellation
+            if cancel_check and cancel_check():
+                if progress_callback:
+                    await progress_callback("Cancellation requested, stopping...")
                 break
 
-            if filters.passes(post):
-                filtered_posts.append(post)
-                if progress_callback:
-                    post_type = "📹" if post.is_video else "📷"
-                    await progress_callback(f"  + Kept {post_type}: {post.title[:30]}... (likes={post.likes})")
-            else:
-                # Determine why it was filtered
+            # Extract cards from current view
+            card_data = await self.page.evaluate('''() => {
+                const results = [];
+                const cards = document.querySelectorAll('section.note-item');
+
+                cards.forEach(card => {
+                    try {
+                        const coverLink = card.querySelector('a.cover');
+                        const tokenizedPath = coverLink ? coverLink.getAttribute('href') : '';
+
+                        let noteId = null;
+                        if (tokenizedPath) {
+                            const match = tokenizedPath.match(/\\/(search_result|explore)\\/([a-f0-9]+)/);
+                            if (match) noteId = match[2];
+                        }
+
+                        if (!noteId) {
+                            const permLink = card.querySelector('a[href^="/explore/"]');
+                            if (permLink) {
+                                const match = permLink.href.match(/\\/explore\\/([a-f0-9]+)/);
+                                if (match) noteId = match[1];
+                            }
+                        }
+
+                        if (!noteId) {
+                            const searchLink = card.querySelector('a[href*="/search_result/"]');
+                            if (searchLink) {
+                                const match = searchLink.href.match(/\\/search_result\\/([a-f0-9]+)/);
+                                if (match) noteId = match[1];
+                            }
+                        }
+
+                        if (!noteId) return;
+
+                        const tokenizedUrl = tokenizedPath
+                            ? 'https://www.xiaohongshu.com' + tokenizedPath
+                            : '';
+
+                        const titleEl = card.querySelector('.footer a.title span');
+                        const title = titleEl ? titleEl.textContent.trim() : '';
+
+                        const authorNameEl = card.querySelector('.name-time-wrapper .name');
+                        const authorName = authorNameEl ? authorNameEl.textContent.trim() : '';
+
+                        const avatarEl = card.querySelector('img.author-avatar');
+                        const authorAvatar = avatarEl ? avatarEl.src : '';
+
+                        const authorLinkEl = card.querySelector('a.author');
+                        let authorProfileUrl = '';
+                        if (authorLinkEl) {
+                            authorProfileUrl = authorLinkEl.href;
+                        }
+
+                        const likesEl = card.querySelector('.like-wrapper .count');
+                        let likes = 0;
+                        if (likesEl) {
+                            const likesText = likesEl.textContent.trim();
+                            if (likesText.includes('万')) {
+                                likes = Math.round(parseFloat(likesText.replace('万', '')) * 10000);
+                            } else {
+                                likes = parseInt(likesText.replace(/[^0-9]/g, '')) || 0;
+                            }
+                        }
+
+                        const coverEl = card.querySelector('a.cover img');
+                        const coverImage = coverEl ? coverEl.src : '';
+
+                        const dateEl = card.querySelector('.name-time-wrapper .time');
+                        const publishDate = dateEl ? dateEl.textContent.trim() : '';
+
+                        const cardWidth = parseInt(card.getAttribute('data-width')) || 0;
+                        const cardHeight = parseInt(card.getAttribute('data-height')) || 0;
+
+                        const hasVideoIcon = card.querySelector('svg.play-icon, .play-icon, span.play-icon, [class*="video-icon"]') !== null;
+
+                        results.push({
+                            noteId,
+                            tokenizedUrl,
+                            title,
+                            authorName,
+                            authorAvatar,
+                            authorProfileUrl,
+                            likes,
+                            coverImage,
+                            publishDate,
+                            cardWidth,
+                            cardHeight,
+                            isVideo: hasVideoIcon
+                        });
+                    } catch (e) {
+                        // Skip this card on error
+                    }
+                });
+
+                return results;
+            }''')
+
+            # Process each new card with real-time filtering
+            new_posts_this_scroll = 0
+            for item in card_data:
+                if item['noteId'] in seen_note_ids:
+                    continue  # Already processed
+
+                seen_note_ids.add(item['noteId'])
+                total_scanned += 1
+                new_posts_this_scroll += 1
+
+                # Create post object
+                post = XHSPost(
+                    note_id=item['noteId'],
+                    permanent_url=f"https://www.xiaohongshu.com/explore/{item['noteId']}",
+                    tokenized_url=item['tokenizedUrl'],
+                    title=item['title'],
+                    author=item['authorName'],
+                    author_avatar=item['authorAvatar'],
+                    author_profile_url=item['authorProfileUrl'],
+                    likes=item['likes'],
+                    cover_image=item['coverImage'],
+                    publish_date=item['publishDate'],
+                    card_width=item['cardWidth'],
+                    card_height=item['cardHeight'],
+                    is_video=item['isVideo']
+                )
+
+                # Real-time filtering
                 if filters.skip_videos and post.is_video:
                     videos_skipped += 1
                     if progress_callback:
@@ -349,15 +483,130 @@ class XHSScraper:
                 elif post.likes < filters.min_likes:
                     likes_filtered += 1
                     if progress_callback:
-                        await progress_callback(f"  - Low likes: {post.title[:30]}... (likes={post.likes} < {filters.min_likes})")
+                        await progress_callback(f"  - Low likes ({post.likes}<{filters.min_likes}): {post.title[:30]}...")
+                else:
+                    # Passed all filters!
+                    filtered_posts.append(post)
+                    if progress_callback:
+                        post_type = "📹" if post.is_video else "📷"
+                        await progress_callback(f"  ✓ [{len(filtered_posts)}/{filters.max_posts}] {post_type} {post.title[:25]}... (likes={post.likes})")
 
+                    # Check if we have enough
+                    if len(filtered_posts) >= filters.max_posts:
+                        break
+
+            # Check if we have enough posts
+            if len(filtered_posts) >= filters.max_posts:
+                break
+
+            # Detect page end: no new posts for consecutive scrolls
+            if new_posts_this_scroll == 0:
+                no_new_posts_count += 1
+                if progress_callback:
+                    await progress_callback(f"No new posts this scroll ({no_new_posts_count}/{max_no_new_posts})")
+                if no_new_posts_count >= max_no_new_posts:
+                    if progress_callback:
+                        await progress_callback("⚠️ Page has no more content, stopping...")
+                    break
+            else:
+                no_new_posts_count = 0  # Reset counter
+
+            # Scroll down to load more
+            await self.page.evaluate('window.scrollBy(0, window.innerHeight)')
+            await self._random_delay(1.5, 2.5)
+            scroll_count += 1
+
+            if progress_callback:
+                await progress_callback(f"Scrolling... (scanned: {total_scanned}, kept: {len(filtered_posts)}/{filters.max_posts})")
+
+        # Final summary
         if progress_callback:
-            summary = f"After filtering: {len(filtered_posts)} posts kept (from {len(all_posts)} found)"
+            summary = f"✅ Complete: {len(filtered_posts)} posts kept (scanned {total_scanned})"
             if videos_skipped > 0 or likes_filtered > 0:
-                summary += f" | Filtered: {videos_skipped} videos, {likes_filtered} low-likes"
+                summary += f" | Filtered out: {videos_skipped} videos, {likes_filtered} low-likes"
             await progress_callback(summary)
 
         return filtered_posts
+
+
+async def save_posts_to_database(
+    posts: List[XHSPost],
+    account_id: int,
+    keyword: str,
+    scrape_task_id: Optional[int] = None,
+    progress_callback=None
+) -> Tuple[int, int]:
+    """
+    Save posts to database. Returns (new_count, duplicate_count).
+    """
+    new_count = 0
+    duplicate_count = 0
+
+    try:
+        db = get_database()
+        async with db.session() as session:
+            # Ensure account exists in database
+            account_repo = AccountRepository(session)
+            await account_repo.get_or_create(account_id)
+
+            post_repo = PostRepository(session)
+
+            for post in posts:
+                # Check if post already exists
+                existing = await post_repo.get_by_note_id(post.note_id)
+
+                # Upsert the post
+                await post_repo.upsert(
+                    note_id=post.note_id,
+                    scrape_task_id=scrape_task_id,
+                    account_id=account_id,
+                    title=post.title,
+                    permanent_url=post.permanent_url,
+                    tokenized_url=post.tokenized_url,
+                    author_name=post.author,
+                    author_avatar_url=post.author_avatar,
+                    author_profile_url=post.author_profile_url,
+                    likes=post.likes,
+                    cover_image_url=post.cover_image,
+                    is_video=post.is_video,
+                    card_width=post.card_width,
+                    card_height=post.card_height,
+                    publish_date=post.publish_date,
+                    scraped_at=datetime.utcnow(),
+                    keyword=keyword,
+                )
+
+                if existing:
+                    duplicate_count += 1
+                else:
+                    new_count += 1
+
+            # Update account stats
+            await account_repo.increment_stats(
+                account_id,
+                posts_scraped=new_count  # Only count new posts
+            )
+
+            # Update hourly stats
+            hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+            stats_repo = StatsRepository(session)
+            await stats_repo.record_stats(
+                account_id=account_id,
+                period_type="hour",
+                period_start=hour_start,
+                posts_scraped=new_count,
+                keywords_searched=1
+            )
+
+        if progress_callback:
+            await progress_callback(f"Database: Saved {new_count} new posts, {duplicate_count} duplicates")
+
+    except Exception as e:
+        print(f"Error saving posts to database: {e}")
+        if progress_callback:
+            await progress_callback(f"Warning: Failed to save to database - {str(e)}")
+
+    return new_count, duplicate_count
 
 
 def save_results(posts: List[XHSPost], keyword: str, account_id: int, logs: List[str] = None) -> Tuple[str, str]:
@@ -413,7 +662,8 @@ async def run_scrape_task(
     account_id: int,
     filters: ScrapeFilter,
     progress_callback=None,
-    cancel_check=None
+    cancel_check=None,
+    scrape_task_id: Optional[int] = None
 ) -> Tuple[List[XHSPost], str, str]:
     """
     Run a complete scrape task.
@@ -433,6 +683,16 @@ async def run_scrape_task(
     try:
         await scraper.init_page()
         posts = await scraper.search_and_scrape(keyword, filters, log_collecting_callback, cancel_check)
+
+        # Save posts to database
+        if posts:
+            await save_posts_to_database(
+                posts=posts,
+                account_id=account_id,
+                keyword=keyword,
+                scrape_task_id=scrape_task_id,
+                progress_callback=log_collecting_callback
+            )
 
         # Save results and logs even if cancelled (partial results)
         json_filepath, log_filepath = save_results(posts, keyword, account_id, collected_logs)

@@ -1,5 +1,5 @@
 # Database connection management for PostgreSQL
-# Version 1.0 - Async SQLAlchemy connection with connection pooling
+# Version 1.1 - Fixed to read DATABASE_USER from environment, defaults to system user
 #
 # Provides DatabaseConnection class for managing PostgreSQL connections
 # Uses async SQLAlchemy with asyncpg driver for FastAPI compatibility
@@ -21,7 +21,21 @@ from .models import Base
 
 # Default database configuration
 # Can be overridden via environment variables
-DEFAULT_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/xhs_scraper"
+def _get_default_database_url() -> str:
+    """Build default database URL from environment or system defaults"""
+    user = os.getenv("POSTGRES_USER", os.getenv("USER", "postgres"))
+    password = os.getenv("POSTGRES_PASSWORD", "")
+    host = os.getenv("POSTGRES_HOST", "localhost")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    database = os.getenv("POSTGRES_DATABASE", "xhs_scraper")
+
+    # Build URL with or without password
+    if password:
+        return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
+    else:
+        return f"postgresql+asyncpg://{user}@{host}:{port}/{database}"
+
+DEFAULT_DATABASE_URL = _get_default_database_url()
 
 
 class DatabaseConnection:
@@ -87,7 +101,7 @@ class DatabaseConnection:
             async with db.session() as session:
                 result = await session.execute(query)
         """
-        session = self._session_factory()
+        session = self.session_factory()
         try:
             yield session
             await session.commit()

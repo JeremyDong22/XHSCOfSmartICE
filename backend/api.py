@@ -1,13 +1,13 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.4 - Log files now saved alongside JSON results
-# Changes: run_scrape_task now returns log_filepath, completion message shows both output files
-# Previous: Added skip_videos filter option to scrape endpoint
+# Version: 1.5 - PostgreSQL database integration for tracking and statistics
+# Changes: Added database lifecycle, new stats endpoints, database sync for accounts
+# Previous: Log files now saved alongside JSON results
 
 import os
 import json
 import uuid
 import asyncio
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,10 @@ from browser_manager import BrowserManager
 from xiaohongshu_scraper import run_scrape_task, OUTPUT_DIR
 from data_models import ScrapeFilter
 from scrape_manager import ScrapeManager
+
+# Database imports
+from database import init_database, close_database, get_database
+from database.repositories import StatsRepository
 
 # Pydantic models for API requests/responses
 class AccountResponse(BaseModel):
@@ -84,6 +88,16 @@ async def lifespan(app: FastAPI):
     global account_manager, browser_manager, scrape_manager
 
     # Startup
+    print("Starting up XHS Scraper API...")
+
+    # Initialize database
+    try:
+        await init_database()
+        print("Database connection initialized")
+    except Exception as e:
+        print(f"WARNING: Failed to initialize database: {e}")
+        print("Continuing without database (tracking disabled)")
+
     account_manager = AccountManager()
     browser_manager = BrowserManager(account_manager)
     scrape_manager = ScrapeManager()
@@ -92,7 +106,15 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    print("Shutting down XHS Scraper API...")
     await browser_manager.stop()
+
+    # Close database connection
+    try:
+        await close_database()
+        print("Database connection closed")
+    except Exception as e:
+        print(f"Error closing database: {e}")
 
 
 app = FastAPI(
@@ -348,13 +370,21 @@ async def start_scrape(request: ScrapeRequest):
         try:
             await scrape_manager.send_log(task_id, f"Starting scrape for '{request.keyword}'...")
 
+            # Wait a moment for database task to be created
+            await asyncio.sleep(0.1)
+
+            # Get database task ID if available
+            scrape = scrape_manager.get_scrape(task_id)
+            db_task_id = scrape.db_task_id if scrape else None
+
             posts, json_filepath, log_filepath = await run_scrape_task(
                 context=context,
                 keyword=request.keyword,
                 account_id=request.account_id,
                 filters=filters,
                 progress_callback=progress_callback,
-                cancel_check=lambda: scrape_manager.is_cancelled(task_id)
+                cancel_check=lambda: scrape_manager.is_cancelled(task_id),
+                scrape_task_id=db_task_id
             )
 
             if scrape_manager.is_cancelled(task_id):
@@ -508,6 +538,57 @@ async def delete_scrape_result(filename: str):
         return {"success": True, "message": f"Deleted {filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+
+# Database statistics endpoints
+@app.get("/api/accounts/{account_id}/stats")
+async def get_account_stats(account_id: int) -> Dict[str, Any]:
+    """Get detailed statistics for a specific account"""
+    try:
+        db = get_database()
+        async with db.session() as session:
+            stats_repo = StatsRepository(session)
+            summary = await stats_repo.get_account_summary(account_id)
+            return summary
+    except Exception as e:
+        print(f"Error fetching account stats: {e}")
+        # Return empty stats if database unavailable
+        return {
+            "account_id": account_id,
+            "lifetime": {
+                "total_scrapes": 0,
+                "total_posts_scraped": 0,
+                "total_browser_opens": 0,
+                "total_browser_duration_seconds": 0,
+            },
+            "today": {
+                "scrape_count": 0,
+                "posts_scraped": 0,
+                "browser_opens": 0,
+                "browser_duration_seconds": 0,
+            },
+            "this_hour": {
+                "scrape_count": 0,
+                "posts_scraped": 0,
+                "browser_opens": 0,
+                "browser_duration_seconds": 0,
+            },
+        }
+
+
+@app.get("/api/stats/all")
+async def get_all_stats() -> List[Dict[str, Any]]:
+    """Get statistics for all accounts"""
+    try:
+        db = get_database()
+        async with db.session() as session:
+            stats_repo = StatsRepository(session)
+            summaries = await stats_repo.get_all_accounts_summary()
+            return summaries
+    except Exception as e:
+        print(f"Error fetching all account stats: {e}")
+        # Return empty list if database unavailable
+        return []
 
 
 if __name__ == "__main__":

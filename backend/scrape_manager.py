@@ -1,11 +1,17 @@
 # Scrape manager for tracking active scraping tasks
-# Version: 1.0 - Manages active scrape tasks with cancellation and logging support
-# Created: 2025-12-06 - Added for real-time scraping management with SSE support
+# Version: 1.1 - Added database integration for scrape task tracking
+# Changes: Create and update ScrapeTask records in database
+# Previous: Added for real-time scraping management with SSE support
 
 import asyncio
 from typing import Dict, Optional, Callable
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
+
+# Database imports
+from database import get_database
+from database.repositories import ScrapeTaskRepository, AccountRepository, StatsRepository
 
 
 @dataclass
@@ -18,6 +24,7 @@ class ActiveScrape:
     status: str  # running, completed, cancelled, failed
     asyncio_task: Optional[asyncio.Task] = None
     cancel_requested: bool = False
+    db_task_id: Optional[int] = None  # Database ScrapeTask.id
 
 
 class ScrapeManager:
@@ -38,6 +45,10 @@ class ScrapeManager:
         )
         self.active_scrapes[task_id] = scrape
         self.log_callbacks[task_id] = []
+
+        # Create task in database
+        asyncio.create_task(self._create_db_task(task_id, account_id, keyword))
+
         return scrape
 
     def get_scrape(self, task_id: str) -> Optional[ActiveScrape]:
@@ -70,6 +81,14 @@ class ScrapeManager:
         """Mark scrape as completed/failed"""
         if task_id in self.active_scrapes:
             self.active_scrapes[task_id].status = status
+
+            # Update database task status
+            asyncio.create_task(self._update_db_task_status(task_id, status))
+
+            # Update account scrape count
+            scrape = self.active_scrapes[task_id]
+            asyncio.create_task(self._update_scrape_stats(scrape.account_id))
+
             # Clean up after a delay
             asyncio.create_task(self._cleanup_scrape(task_id))
 
@@ -106,3 +125,65 @@ class ScrapeManager:
     def get_all_active(self) -> Dict[str, ActiveScrape]:
         """Get all active scrapes"""
         return {k: v for k, v in self.active_scrapes.items() if v.status == "running"}
+
+    # Database helper methods
+    async def _create_db_task(self, task_id: str, account_id: int, keyword: str):
+        """Create scrape task in database"""
+        try:
+            db = get_database()
+            async with db.session() as session:
+                # Ensure account exists
+                account_repo = AccountRepository(session)
+                await account_repo.get_or_create(account_id)
+
+                # Create scrape task
+                task_repo = ScrapeTaskRepository(session)
+                db_task = await task_repo.create(
+                    task_id=UUID(task_id),
+                    account_id=account_id,
+                    keyword=keyword
+                )
+
+                # Store DB task ID
+                if task_id in self.active_scrapes:
+                    self.active_scrapes[task_id].db_task_id = db_task.id
+
+        except Exception as e:
+            print(f"Error creating scrape task in database: {e}")
+
+    async def _update_db_task_status(self, task_id: str, status: str):
+        """Update scrape task status in database"""
+        try:
+            db = get_database()
+            async with db.session() as session:
+                task_repo = ScrapeTaskRepository(session)
+                await task_repo.update_status(
+                    task_id=UUID(task_id),
+                    status=status
+                )
+        except Exception as e:
+            print(f"Error updating scrape task status in database: {e}")
+
+    async def _update_scrape_stats(self, account_id: int):
+        """Update account scrape statistics"""
+        try:
+            db = get_database()
+            async with db.session() as session:
+                # Increment account's total scrapes
+                account_repo = AccountRepository(session)
+                await account_repo.increment_stats(
+                    account_id,
+                    scrapes=1
+                )
+
+                # Update hourly stats
+                hour_start = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+                stats_repo = StatsRepository(session)
+                await stats_repo.record_stats(
+                    account_id=account_id,
+                    period_type="hour",
+                    period_start=hour_start,
+                    scrape_count=1
+                )
+        except Exception as e:
+            print(f"Error updating scrape stats in database: {e}")

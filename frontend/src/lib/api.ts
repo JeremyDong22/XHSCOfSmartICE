@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.3 - Added XHSPost and ScrapeResultData types for visual preview
-// Changes: Added post data types for displaying scrape results as cards
-// Previous: Added skip_videos filter option to ScrapeRequest
+// Version: 1.4 - Added AccountStats interface and stats API endpoints
+// Changes: Added getAccountStats and getAllAccountsStats functions for usage tracking
+// Previous: Added XHSPost and ScrapeResultData types for visual preview
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -55,6 +55,33 @@ export interface Stats {
   inactive: number;
   with_session: number;
   browsers_open: number;
+}
+
+// Account usage statistics
+export interface AccountStats {
+  account_id: number;
+  nickname?: string;
+  is_active: boolean;
+  created_at?: string;
+  last_used_at?: string;
+  lifetime: {
+    total_scrapes: number;
+    total_posts_scraped: number;
+    total_browser_opens: number;
+    total_browser_duration_seconds: number;
+  };
+  today: {
+    scrape_count: number;
+    posts_scraped: number;
+    browser_opens: number;
+    browser_duration_seconds: number;
+  };
+  this_hour: {
+    scrape_count: number;
+    posts_scraped: number;
+    browser_opens: number;
+    browser_duration_seconds: number;
+  };
 }
 
 export interface ScrapeRequest {
@@ -242,4 +269,17 @@ export async function deleteScrapeResult(filename: string): Promise<void> {
     const error = await res.json();
     throw new Error(error.detail || 'Failed to delete result');
   }
+}
+
+// Account Stats API
+export async function getAccountStats(accountId: number): Promise<AccountStats> {
+  const res = await fetch(`${API_BASE}/accounts/${accountId}/stats`);
+  if (!res.ok) throw new Error('Failed to fetch account stats');
+  return res.json();
+}
+
+export async function getAllAccountsStats(): Promise<AccountStats[]> {
+  const res = await fetch(`${API_BASE}/stats/all`);
+  if (!res.ok) throw new Error('Failed to fetch all account stats');
+  return res.json();
 }
