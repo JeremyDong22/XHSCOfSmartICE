@@ -1,0 +1,45 @@
+2025/11/06-09:35:08.721 64c70c1 Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_8/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/06-09:35:08.725 64c70c1 Recovering log #58
+2025/11/06-09:35:08.725 64c70c1 Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_8/Default/Local Storage/leveldb/000058.log 
+2025/11/06-09:38:11.249 64c70ca Level-0 table #61: started
+2025/11/06-09:38:11.251 64c70ca Level-0 table #61: 14361 bytes OK
+2025/11/06-09:38:11.254 64c70ca Delete type=0 #58
+2025/11/06-10:30:14.224 64c70ca Level-0 table #63: started
+2025/11/06-10:30:14.228 64c70ca Level-0 table #63: 13431 bytes OK
+2025/11/06-10:30:14.230 64c70ca Delete type=0 #60
+2025/11/06-11:22:14.303 64c70ca Level-0 table #65: started
+2025/11/06-11:22:14.309 64c70ca Level-0 table #65: 13738 bytes OK
+2025/11/06-11:22:14.313 64c70ca Delete type=0 #62
+2025/11/06-11:22:14.315 64c70ca Compacting 4@0 + 1@1 files
+2025/11/06-11:22:14.321 64c70ca Generated table #66@0: 53 keys, 209289 bytes
+2025/11/06-11:22:14.321 64c70ca Compacted 4@0 + 1@1 files => 209289 bytes
+2025/11/06-11:22:14.323 64c70ca compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/06-11:22:14.323 64c70ca Delete type=2 #63
+2025/11/06-11:22:14.323 64c70ca Delete type=2 #61
+2025/11/06-11:22:14.323 64c70ca Delete type=2 #65
+2025/11/06-11:22:14.323 64c70ca Delete type=2 #57
+2025/11/06-11:22:14.323 64c70ca Delete type=2 #55
+2025/11/06-12:13:14.135 64c70ca Level-0 table #68: started
+2025/11/06-12:13:14.138 64c70ca Level-0 table #68: 14059 bytes OK
+2025/11/06-12:13:14.141 64c70ca Delete type=0 #64
+2025/11/06-12:50:15.081 64c70ca Level-0 table #70: started
+2025/11/06-12:50:15.086 64c70ca Level-0 table #70: 15384 bytes OK
+2025/11/06-12:50:15.089 64c70ca Delete type=0 #67
+2025/11/06-13:14:14.200 64c70ca Level-0 table #72: started
+2025/11/06-13:14:14.203 64c70ca Level-0 table #72: 16093 bytes OK
+2025/11/06-13:14:14.207 64c70ca Delete type=0 #69
+2025/11/06-19:11:31.117 64c70ca Level-0 table #74: started
+2025/11/06-19:11:31.120 64c70ca Level-0 table #74: 15765 bytes OK
+2025/11/06-19:11:31.130 64c70ca Delete type=0 #71
+2025/11/06-19:11:31.132 64c70ca Compacting 4@0 + 1@1 files
+2025/11/06-19:11:31.140 64c70ca Generated table #75@0: 53 keys, 209183 bytes
+2025/11/06-19:11:31.140 64c70ca Compacted 4@0 + 1@1 files => 209183 bytes
+2025/11/06-19:11:31.142 64c70ca compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/06-19:11:31.143 64c70ca Delete type=2 #74
+2025/11/06-19:11:31.143 64c70ca Delete type=2 #70
+2025/11/06-19:11:31.143 64c70ca Delete type=2 #66
+2025/11/06-19:11:31.143 64c70ca Delete type=2 #72
+2025/11/06-19:11:31.143 64c70ca Delete type=2 #68
+2025/11/06-19:36:31.104 64c70ca Level-0 table #77: started
+2025/11/06-19:36:31.109 64c70ca Level-0 table #77: 16110 bytes OK
+2025/11/06-19:36:31.113 64c70ca Delete type=0 #73

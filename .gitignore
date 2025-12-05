@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+
+# Node
+node_modules/
+.next/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Chrome browser cache (regenerated automatically, not needed for sessions)
+user_data/*/Default/Cache/
+user_data/*/Default/Code Cache/
+user_data/*/Default/GPUCache/
+user_data/*/Default/DawnWebGPUCache/
+user_data/*/Default/DawnGraphiteCache/
+user_data/*/Default/Shared Dictionary/
+user_data/*/GraphiteDawnCache/
+user_data/*/GrShaderCache/
+user_data/*/*.pma
+
+# Keep these files (do NOT ignore):
+# - user_data/ session files (Cookies, Local Storage, Sessions)
+# - .mcp.json (MCP server config)
+# - account_config.json (account data)

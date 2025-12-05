@@ -1,0 +1,51 @@
+2025/11/03-17:56:07.230 630f1f2 Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/03-17:56:07.233 630f1f2 Recovering log #10
+2025/11/03-17:56:07.234 630f1f2 Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_9/Default/Local Storage/leveldb/000010.log 
+2025/11/03-18:18:09.300 630f1fd Level-0 table #14: started
+2025/11/03-18:18:09.304 630f1fd Level-0 table #14: 13932 bytes OK
+2025/11/03-18:18:09.308 630f1fd Delete type=0 #10
+2025/11/03-19:09:09.272 630f1fd Level-0 table #16: started
+2025/11/03-19:09:09.276 630f1fd Level-0 table #16: 12872 bytes OK
+2025/11/03-19:09:09.278 630f1fd Delete type=0 #13
+2025/11/03-20:00:09.303 630f1fd Level-0 table #18: started
+2025/11/03-20:00:09.307 630f1fd Level-0 table #18: 12909 bytes OK
+2025/11/03-20:00:09.310 630f1fd Delete type=0 #15
+2025/11/03-20:00:09.311 630f1fd Compacting 4@0 + 1@1 files
+2025/11/03-20:00:09.313 630f1fd Generated table #19@0: 13 keys, 2579 bytes
+2025/11/03-20:00:09.313 630f1fd Compacted 4@0 + 1@1 files => 2579 bytes
+2025/11/03-20:00:09.313 630f1fd compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/03-20:00:09.314 630f1fd Delete type=2 #14
+2025/11/03-20:00:09.314 630f1fd Delete type=2 #16
+2025/11/03-20:00:09.314 630f1fd Delete type=2 #11
+2025/11/03-20:00:09.314 630f1fd Delete type=2 #8
+2025/11/03-20:00:09.314 630f1fd Delete type=2 #18
+2025/11/03-20:51:09.276 630f1fd Level-0 table #21: started
+2025/11/03-20:51:09.278 630f1fd Level-0 table #21: 12928 bytes OK
+2025/11/03-20:51:09.281 630f1fd Delete type=0 #17
+2025/11/03-21:42:09.306 630f1fd Level-0 table #23: started
+2025/11/03-21:42:09.310 630f1fd Level-0 table #23: 12912 bytes OK
+2025/11/03-21:42:09.312 630f1fd Delete type=0 #20
+2025/11/03-22:33:09.318 630f1fd Level-0 table #25: started
+2025/11/03-22:33:09.327 630f1fd Level-0 table #25: 13535 bytes OK
+2025/11/03-22:33:09.330 630f1fd Delete type=0 #22
+2025/11/03-23:24:09.285 630f1fd Level-0 table #27: started
+2025/11/03-23:24:09.288 630f1fd Level-0 table #27: 12914 bytes OK
+2025/11/03-23:24:09.293 630f1fd Delete type=0 #24
+2025/11/03-23:24:09.295 630f1fd Compacting 4@0 + 1@1 files
+2025/11/03-23:24:09.298 630f1fd Generated table #28@0: 13 keys, 2110 bytes
+2025/11/03-23:24:09.298 630f1fd Compacted 4@0 + 1@1 files => 2110 bytes
+2025/11/03-23:24:09.299 630f1fd compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/03-23:24:09.299 630f1fd Delete type=2 #21
+2025/11/03-23:24:09.299 630f1fd Delete type=2 #23
+2025/11/03-23:24:09.299 630f1fd Delete type=2 #27
+2025/11/03-23:24:09.299 630f1fd Delete type=2 #25
+2025/11/03-23:24:09.299 630f1fd Delete type=2 #19
+2025/11/04-00:06:09.325 630f1fd Level-0 table #30: started
+2025/11/04-00:06:09.327 630f1fd Level-0 table #30: 16271 bytes OK
+2025/11/04-00:06:09.331 630f1fd Delete type=0 #26
+2025/11/04-00:28:09.335 630f1fd Level-0 table #32: started
+2025/11/04-00:28:09.338 630f1fd Level-0 table #32: 16306 bytes OK
+2025/11/04-00:28:09.341 630f1fd Delete type=0 #29
+2025/11/04-00:50:09.338 630f1fd Level-0 table #34: started
+2025/11/04-00:50:09.341 630f1fd Level-0 table #34: 17031 bytes OK
+2025/11/04-00:50:09.348 630f1fd Delete type=0 #31

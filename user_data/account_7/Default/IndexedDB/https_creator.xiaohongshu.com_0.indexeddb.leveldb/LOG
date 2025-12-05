@@ -1,0 +1,7 @@
+2025/11/06-12:26:22.954 64c6d55 Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_7/Default/IndexedDB/https_creator.xiaohongshu.com_0.indexeddb.leveldb/MANIFEST-000001
+2025/11/06-12:26:22.955 64c6d55 Recovering log #3
+2025/11/06-12:26:22.957 64c6d55 Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_7/Default/IndexedDB/https_creator.xiaohongshu.com_0.indexeddb.leveldb/000003.log 
+2025/11/06-12:36:38.480 64c6e2e Level-0 table #5: started
+2025/11/06-12:36:38.482 64c6e2e Level-0 table #5: 132216 bytes OK
+2025/11/06-12:36:38.484 64c6e2e Delete type=0 #3
+2025/11/06-12:36:38.486 64c6e2e Manual compaction at level-0 from (begin) .. (end); will stop at (end)

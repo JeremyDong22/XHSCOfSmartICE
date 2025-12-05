@@ -1,0 +1,17 @@
+2025/12/05-23:13:11.985 15b6e67 Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/05-23:13:11.989 15b6e67 Recovering log #100
+2025/12/05-23:13:11.989 15b6e67 (ignoring error) /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log: dropping 12427 bytes; Corruption: checksum mismatch
+2025/12/05-23:13:11.989 15b6e67 (ignoring error) /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log: dropping 285 bytes; Corruption: missing start of fragmented record(2)
+2025/12/05-23:13:11.989 15b6e67 Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log 
+2025/12/05-23:45:13.869 15b6e6a Level-0 table #104: started
+2025/12/05-23:45:13.872 15b6e6a Level-0 table #104: 15980 bytes OK
+2025/12/05-23:45:13.876 15b6e6a Delete type=0 #100
+2025/12/05-23:45:13.879 15b6e6a Compacting 4@0 + 1@1 files
+2025/12/05-23:45:13.880 15b6e6a Generated table #105@0: 51 keys, 27508 bytes
+2025/12/05-23:45:13.880 15b6e6a Compacted 4@0 + 1@1 files => 27508 bytes
+2025/12/05-23:45:13.881 15b6e6a compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/12/05-23:45:13.884 15b6e6a Delete type=2 #101
+2025/12/05-23:45:13.885 15b6e6a Delete type=2 #104
+2025/12/05-23:45:13.885 15b6e6a Delete type=2 #99
+2025/12/05-23:45:13.885 15b6e6a Delete type=2 #94
+2025/12/05-23:45:13.885 15b6e6a Delete type=2 #97

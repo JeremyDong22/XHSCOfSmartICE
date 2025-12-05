@@ -1,0 +1,6 @@
+2025/10/31-18:38:19.074 5fa7e36 Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
+2025/10/31-18:38:19.087 5fa7e36 Recovering log #7
+2025/10/31-18:38:19.090 5fa7e36 Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_9/Default/Local Storage/leveldb/000007.log 
+2025/10/31-19:12:18.269 5fa7e3c Level-0 table #11: started
+2025/10/31-19:12:18.271 5fa7e3c Level-0 table #11: 15692 bytes OK
+2025/10/31-19:12:18.277 5fa7e3c Delete type=0 #7

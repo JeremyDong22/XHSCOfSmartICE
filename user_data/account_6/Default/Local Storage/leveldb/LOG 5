@@ -1,0 +1,72 @@
+2025/11/03-17:56:07.246 630f20a Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_6/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/03-17:56:07.248 630f20a Recovering log #10
+2025/11/03-17:56:07.248 630f20a Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_6/Default/Local Storage/leveldb/000010.log 
+2025/11/03-18:19:09.215 630f217 Level-0 table #14: started
+2025/11/03-18:19:09.223 630f217 Level-0 table #14: 13749 bytes OK
+2025/11/03-18:19:09.228 630f217 Delete type=0 #10
+2025/11/03-19:10:09.186 630f217 Level-0 table #16: started
+2025/11/03-19:10:09.221 630f217 Level-0 table #16: 13405 bytes OK
+2025/11/03-19:10:09.235 630f217 Delete type=0 #13
+2025/11/03-20:01:09.216 630f217 Level-0 table #18: started
+2025/11/03-20:01:09.219 630f217 Level-0 table #18: 13438 bytes OK
+2025/11/03-20:01:09.222 630f217 Delete type=0 #15
+2025/11/03-20:01:09.223 630f217 Compacting 4@0 + 1@1 files
+2025/11/03-20:01:09.225 630f217 Generated table #19@0: 13 keys, 2178 bytes
+2025/11/03-20:01:09.225 630f217 Compacted 4@0 + 1@1 files => 2178 bytes
+2025/11/03-20:01:09.226 630f217 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/03-20:01:09.226 630f217 Delete type=2 #14
+2025/11/03-20:01:09.226 630f217 Delete type=2 #16
+2025/11/03-20:01:09.226 630f217 Delete type=2 #11
+2025/11/03-20:01:09.226 630f217 Delete type=2 #8
+2025/11/03-20:01:09.226 630f217 Delete type=2 #18
+2025/11/03-20:52:09.190 630f217 Level-0 table #21: started
+2025/11/03-20:52:09.193 630f217 Level-0 table #21: 13375 bytes OK
+2025/11/03-20:52:09.196 630f217 Delete type=0 #17
+2025/11/03-21:43:09.221 630f217 Level-0 table #23: started
+2025/11/03-21:43:09.225 630f217 Level-0 table #23: 13582 bytes OK
+2025/11/03-21:43:09.228 630f217 Delete type=0 #20
+2025/11/03-22:34:09.232 630f217 Level-0 table #25: started
+2025/11/03-22:34:09.233 630f217 Level-0 table #25: 13441 bytes OK
+2025/11/03-22:34:09.239 630f217 Delete type=0 #22
+2025/11/03-23:25:09.197 630f217 Level-0 table #27: started
+2025/11/03-23:25:09.200 630f217 Level-0 table #27: 13423 bytes OK
+2025/11/03-23:25:09.203 630f217 Delete type=0 #24
+2025/11/03-23:25:09.205 630f217 Compacting 4@0 + 1@1 files
+2025/11/03-23:25:09.207 630f217 Generated table #28@0: 13 keys, 2061 bytes
+2025/11/03-23:25:09.207 630f217 Compacted 4@0 + 1@1 files => 2061 bytes
+2025/11/03-23:25:09.209 630f217 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/03-23:25:09.210 630f217 Delete type=2 #21
+2025/11/03-23:25:09.210 630f217 Delete type=2 #23
+2025/11/03-23:25:09.210 630f217 Delete type=2 #27
+2025/11/03-23:25:09.210 630f217 Delete type=2 #25
+2025/11/03-23:25:09.210 630f217 Delete type=2 #19
+2025/11/03-23:37:09.195 630f217 Level-0 table #30: started
+2025/11/03-23:37:09.200 630f217 Level-0 table #30: 211552 bytes OK
+2025/11/03-23:37:09.204 630f217 Delete type=0 #26
+2025/11/03-23:51:09.232 630f217 Level-0 table #32: started
+2025/11/03-23:51:09.235 630f217 Level-0 table #32: 16813 bytes OK
+2025/11/03-23:51:09.242 630f217 Delete type=0 #29
+2025/11/04-00:05:09.242 630f217 Level-0 table #34: started
+2025/11/04-00:05:09.244 630f217 Level-0 table #34: 16423 bytes OK
+2025/11/04-00:05:09.250 630f217 Delete type=0 #31
+2025/11/04-00:19:09.245 630f217 Level-0 table #36: started
+2025/11/04-00:19:09.250 630f217 Level-0 table #36: 16421 bytes OK
+2025/11/04-00:19:09.253 630f217 Delete type=0 #33
+2025/11/04-00:19:09.254 630f217 Compacting 4@0 + 1@1 files
+2025/11/04-00:19:09.260 630f217 Generated table #37@0: 39 keys, 208465 bytes
+2025/11/04-00:19:09.260 630f217 Compacted 4@0 + 1@1 files => 208465 bytes
+2025/11/04-00:19:09.261 630f217 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/04-00:19:09.261 630f217 Delete type=2 #28
+2025/11/04-00:19:09.261 630f217 Delete type=2 #34
+2025/11/04-00:19:09.261 630f217 Delete type=2 #36
+2025/11/04-00:19:09.261 630f217 Delete type=2 #32
+2025/11/04-00:19:09.261 630f217 Delete type=2 #30
+2025/11/04-00:33:09.253 630f217 Level-0 table #39: started
+2025/11/04-00:33:09.257 630f217 Level-0 table #39: 16390 bytes OK
+2025/11/04-00:33:09.259 630f217 Delete type=0 #35
+2025/11/04-00:47:09.251 630f217 Level-0 table #41: started
+2025/11/04-00:47:09.255 630f217 Level-0 table #41: 16885 bytes OK
+2025/11/04-00:47:09.258 630f217 Delete type=0 #38
+2025/11/04-01:01:09.256 630f217 Level-0 table #43: started
+2025/11/04-01:01:09.259 630f217 Level-0 table #43: 15428 bytes OK
+2025/11/04-01:01:09.263 630f217 Delete type=0 #40

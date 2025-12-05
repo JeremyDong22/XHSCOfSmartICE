@@ -1,0 +1,21 @@
+2025/11/08-21:53:07.897 6acd695 Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_8/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/08-21:53:07.902 6acd695 Recovering log #79
+2025/11/08-21:53:07.902 6acd695 Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_8/Default/Local Storage/leveldb/000079.log 
+2025/11/08-22:32:09.571 6acd69c Level-0 table #83: started
+2025/11/08-22:32:09.573 6acd69c Level-0 table #83: 16205 bytes OK
+2025/11/08-22:32:09.580 6acd69c Delete type=0 #79
+2025/11/08-23:23:09.577 6acd69c Level-0 table #85: started
+2025/11/08-23:23:09.579 6acd69c Level-0 table #85: 13892 bytes OK
+2025/11/08-23:23:09.583 6acd69c Delete type=0 #82
+2025/11/08-23:23:09.584 6acd69c Compacting 4@0 + 1@1 files
+2025/11/08-23:23:09.589 6acd69c Generated table #86@0: 67 keys, 209981 bytes
+2025/11/08-23:23:09.590 6acd69c Compacted 4@0 + 1@1 files => 209981 bytes
+2025/11/08-23:23:09.591 6acd69c compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/08-23:23:09.591 6acd69c Delete type=2 #77
+2025/11/08-23:23:09.591 6acd69c Delete type=2 #75
+2025/11/08-23:23:09.591 6acd69c Delete type=2 #80
+2025/11/08-23:23:09.591 6acd69c Delete type=2 #83
+2025/11/08-23:23:09.591 6acd69c Delete type=2 #85
+2025/11/09-00:14:09.588 6acd69c Level-0 table #88: started
+2025/11/09-00:14:09.591 6acd69c Level-0 table #88: 13775 bytes OK
+2025/11/09-00:14:09.594 6acd69c Delete type=0 #84

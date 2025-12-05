@@ -1,0 +1,68 @@
+2025/11/06-09:35:08.745 64c70fd Reusing MANIFEST /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_5/Default/Local Storage/leveldb/MANIFEST-000001
+2025/11/06-09:35:08.754 64c70fd Recovering log #43
+2025/11/06-09:35:08.755 64c70fd Level-0 table #46: started
+2025/11/06-09:35:08.762 64c70fd Level-0 table #46: 17798 bytes OK
+2025/11/06-09:35:08.762 64c70fd Recovering log #46
+2025/11/06-09:35:08.762 64c70fd Reusing old log /Users/jeremydong/Desktop/xhs_GEO_tests/user_data/account_5/Default/Local Storage/leveldb/000046.log 
+2025/11/06-09:35:08.770 64c70fd Delete type=0 #43
+2025/11/06-09:35:08.770 64c70fd Delete type=2 #47
+2025/11/06-09:35:08.775 64c7100 Compacting 4@0 + 1@1 files
+2025/11/06-09:35:08.782 64c7100 Generated table #47@0: 49 keys, 209307 bytes
+2025/11/06-09:35:08.782 64c7100 Compacted 4@0 + 1@1 files => 209307 bytes
+2025/11/06-09:35:08.784 64c7100 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/06-09:35:08.785 64c7100 Delete type=2 #39
+2025/11/06-09:35:08.785 64c7100 Delete type=2 #37
+2025/11/06-09:35:08.785 64c7100 Delete type=2 #41
+2025/11/06-09:35:08.785 64c7100 Delete type=2 #44
+2025/11/06-09:35:08.785 64c7100 Delete type=2 #46
+2025/11/06-10:27:13.957 64c7100 Level-0 table #49: started
+2025/11/06-10:27:13.959 64c7100 Level-0 table #49: 13706 bytes OK
+2025/11/06-10:27:13.962 64c7100 Delete type=0 #46
+2025/11/06-11:19:14.036 64c7100 Level-0 table #51: started
+2025/11/06-11:19:14.042 64c7100 Level-0 table #51: 13567 bytes OK
+2025/11/06-11:19:14.045 64c7100 Delete type=0 #48
+2025/11/06-12:10:13.870 64c7100 Level-0 table #53: started
+2025/11/06-12:10:13.872 64c7100 Level-0 table #53: 13621 bytes OK
+2025/11/06-12:10:13.875 64c7100 Delete type=0 #50
+2025/11/06-12:37:13.886 64c7100 Level-0 table #55: started
+2025/11/06-12:37:13.889 64c7100 Level-0 table #55: 16269 bytes OK
+2025/11/06-12:37:13.891 64c7100 Delete type=0 #52
+2025/11/06-12:37:13.893 64c7100 Compacting 4@0 + 1@1 files
+2025/11/06-12:37:13.899 64c7100 Generated table #56@0: 50 keys, 210719 bytes
+2025/11/06-12:37:13.899 64c7100 Compacted 4@0 + 1@1 files => 210719 bytes
+2025/11/06-12:37:13.900 64c7100 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/06-12:37:13.901 64c7100 Delete type=2 #49
+2025/11/06-12:37:13.901 64c7100 Delete type=2 #55
+2025/11/06-12:37:13.901 64c7100 Delete type=2 #51
+2025/11/06-12:37:13.901 64c7100 Delete type=2 #47
+2025/11/06-12:37:13.901 64c7100 Delete type=2 #53
+2025/11/06-12:50:13.912 64c7100 Level-0 table #58: started
+2025/11/06-12:50:13.915 64c7100 Level-0 table #58: 37595 bytes OK
+2025/11/06-12:50:13.920 64c7100 Delete type=0 #54
+2025/11/06-13:04:13.928 64c7100 Level-0 table #60: started
+2025/11/06-13:04:13.930 64c7100 Level-0 table #60: 16530 bytes OK
+2025/11/06-13:04:13.932 64c7100 Delete type=0 #57
+2025/11/06-13:17:23.037 64c7100 Level-0 table #62: started
+2025/11/06-13:17:23.042 64c7100 Level-0 table #62: 15732 bytes OK
+2025/11/06-13:17:23.046 64c7100 Delete type=0 #59
+2025/11/06-19:04:30.950 64c7100 Level-0 table #64: started
+2025/11/06-19:04:30.957 64c7100 Level-0 table #64: 17046 bytes OK
+2025/11/06-19:04:30.962 64c7100 Delete type=0 #61
+2025/11/06-19:04:30.963 64c7100 Compacting 4@0 + 1@1 files
+2025/11/06-19:04:30.966 64c7100 Generated table #65@0: 50 keys, 27442 bytes
+2025/11/06-19:04:30.966 64c7100 Compacted 4@0 + 1@1 files => 27442 bytes
+2025/11/06-19:04:30.967 64c7100 compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/11/06-19:04:30.967 64c7100 Delete type=2 #62
+2025/11/06-19:04:30.967 64c7100 Delete type=2 #60
+2025/11/06-19:04:30.967 64c7100 Delete type=2 #64
+2025/11/06-19:04:30.967 64c7100 Delete type=2 #58
+2025/11/06-19:04:30.967 64c7100 Delete type=2 #56
+2025/11/06-19:18:30.849 64c7100 Level-0 table #67: started
+2025/11/06-19:18:30.853 64c7100 Level-0 table #67: 16357 bytes OK
+2025/11/06-19:18:30.856 64c7100 Delete type=0 #63
+2025/11/06-19:32:39.938 64c7100 Level-0 table #69: started
+2025/11/06-19:32:39.945 64c7100 Level-0 table #69: 16185 bytes OK
+2025/11/06-19:32:39.948 64c7100 Delete type=0 #66
+2025/11/06-19:46:30.874 64c7100 Level-0 table #71: started
+2025/11/06-19:46:30.877 64c7100 Level-0 table #71: 16002 bytes OK
+2025/11/06-19:46:30.880 64c7100 Delete type=0 #68
