@@ -1,9 +1,10 @@
 // Log console component for displaying real-time scrape progress
-// Version: 2.0 - Pure black background with color-coded log levels
+// Version: 2.1 - Fixed SSE URL path and data format to match backend API
+// Changed: URL now points to backend port 8000, corrected path order
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface LogConsoleProps {
   taskId: string;
@@ -16,25 +17,43 @@ interface LogEntry {
   message: string;
 }
 
+// Determine log level from message content
+function detectLogLevel(message: string): 'info' | 'success' | 'warning' | 'error' {
+  const lowerMsg = message.toLowerCase();
+  if (lowerMsg.includes('error') || lowerMsg.includes('failed')) return 'error';
+  if (lowerMsg.includes('warning') || lowerMsg.includes('warn') || lowerMsg.includes('may need')) return 'warning';
+  if (lowerMsg.includes('complete') || lowerMsg.includes('saved') || lowerMsg.includes('kept') || lowerMsg.includes('+ ')) return 'success';
+  return 'info';
+}
+
 export default function LogConsole({ taskId, onComplete }: LogConsoleProps) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [status, setStatus] = useState<string>('running');
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Memoize onComplete to avoid re-creating EventSource
+  const handleComplete = useCallback((newStatus: string) => {
+    onComplete(newStatus);
+  }, [onComplete]);
+
   useEffect(() => {
-    const eventSource = new EventSource(`/api/scrape/${taskId}/logs`);
+    // Connect to backend SSE endpoint (port 8000, correct path order)
+    const eventSource = new EventSource(`http://localhost:8000/api/scrape/logs/${taskId}`);
 
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
 
         if (data.type === 'log') {
-          setLogs((prev) => [...prev, data.entry]);
+          // Backend sends {type: 'log', message: string}
+          const timestamp = new Date().toLocaleTimeString();
+          const level = detectLogLevel(data.message);
+          setLogs((prev) => [...prev, { timestamp, level, message: data.message }]);
         } else if (data.type === 'status') {
           setStatus(data.status);
           if (data.status === 'completed' || data.status === 'failed' || data.status === 'cancelled') {
             eventSource.close();
-            onComplete(data.status);
+            handleComplete(data.status);
           }
         }
       } catch (e) {
@@ -45,13 +64,13 @@ export default function LogConsole({ taskId, onComplete }: LogConsoleProps) {
     eventSource.onerror = () => {
       eventSource.close();
       setStatus('error');
-      onComplete('error');
+      handleComplete('error');
     };
 
     return () => {
       eventSource.close();
     };
-  }, [taskId, onComplete]);
+  }, [taskId, handleComplete]);
 
   // Auto-scroll to bottom
   useEffect(() => {
