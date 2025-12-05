@@ -1,5 +1,6 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.1 - Fixed Min Likes input behavior (use string state for proper editing)
+// Version: 3.4 - Improved slider UX
+// Changes: Step changed from 5 to 1 for smooth sliding, min changed to 1
 
 'use client';
 
@@ -20,6 +21,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
   const [keyword, setKeyword] = useState('');
   const [maxPosts, setMaxPosts] = useState(20);
   const [minLikesInput, setMinLikesInput] = useState('');
+  const [skipVideos, setSkipVideos] = useState(true); // Default: skip videos, only get images
 
   // Available accounts: browser open and not currently running a task
   const availableAccounts = accounts.filter(a =>
@@ -51,6 +53,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
         min_likes: minLikes,
         min_collects: 0,
         min_comments: 0,
+        skip_videos: skipVideos,
       });
 
       // Dispatch task to the account
@@ -132,15 +135,15 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
             <input
               id="max-posts-slider"
               type="range"
-              min={5}
+              min={1}
               max={100}
-              step={5}
+              step={1}
               value={maxPosts}
               onChange={(e) => setMaxPosts(Number(e.target.value))}
-              aria-valuemin={5}
+              aria-valuemin={1}
               aria-valuemax={100}
               aria-valuenow={maxPosts}
-              className="w-full h-2 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-[#D97757]"
+              className="w-full cursor-pointer"
             />
           </div>
 
@@ -166,6 +169,20 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
             <p className="mt-1.5 text-xs text-stone-500 font-mono">
               Note: Collects and comments filters not available in search-only mode
             </p>
+          </div>
+
+          {/* Skip videos checkbox */}
+          <div className="flex items-center gap-3">
+            <input
+              id="skip-videos-checkbox"
+              type="checkbox"
+              checked={skipVideos}
+              onChange={(e) => setSkipVideos(e.target.checked)}
+              className="w-4 h-4 rounded border-stone-700 bg-stone-900 text-[#D97757] focus:ring-[#D97757] focus:ring-offset-stone-900"
+            />
+            <label htmlFor="skip-videos-checkbox" className="text-sm font-medium text-stone-200 cursor-pointer">
+              Skip videos (images only)
+            </label>
           </div>
 
           {/* Submit button */}

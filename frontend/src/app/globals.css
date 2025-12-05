@@ -1,5 +1,5 @@
 /* XHS Dashboard Global Styles
-   Version: 2.3 - Tailwind v4 with Next.js font variables */
+   Version: 2.4 - Fixed range slider track visibility */
 
 @import "tailwindcss";
 
@@ -82,8 +82,8 @@ body {
   outline-offset: 2px;
 }
 
-/* Form input focus states */
-input:focus,
+/* Form input focus states - exclude range inputs */
+input:focus:not([type="range"]),
 select:focus,
 textarea:focus {
   border-color: var(--primary);
@@ -95,24 +95,30 @@ input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
+  cursor: pointer;
+  outline: none;
+  border: none;
+  height: 20px;
 }
 
-input[type="range"]::-webkit-slider-track {
+input[type="range"]::-webkit-slider-runnable-track {
   height: 8px;
-  background: var(--bg-border);
+  background: #57534E;
   border-radius: 4px;
+  border: none;
 }
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   background: var(--primary);
   border-radius: 50%;
   cursor: pointer;
-  margin-top: -5px;
-  transition: background 0.15s ease;
+  margin-top: -6px;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 input[type="range"]::-webkit-slider-thumb:hover {
@@ -121,17 +127,68 @@ input[type="range"]::-webkit-slider-thumb:hover {
 
 input[type="range"]::-moz-range-track {
   height: 8px;
-  background: var(--bg-border);
+  background: #57534E;
   border-radius: 4px;
+  border: none;
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   background: var(--primary);
   border: none;
   border-radius: 50%;
   cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+input[type="range"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+input[type="range"]:focus::-webkit-slider-runnable-track {
+  outline: none;
+  box-shadow: none;
+}
+
+input[type="range"]:focus::-webkit-slider-thumb {
+  outline: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Checkbox styling */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--bg-base);
+  border: 2px solid var(--bg-hover);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+}
+
+input[type="checkbox"]:checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--primary);
 }
 
 /* Select dropdown arrow */
