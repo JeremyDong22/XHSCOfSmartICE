@@ -1,5 +1,5 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.0 - Redesigned to dispatch tasks to accounts, console moved to account cards
+// Version: 3.1 - Fixed Min Likes input behavior (use string state for proper editing)
 
 'use client';
 
@@ -19,7 +19,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
   const [accountId, setAccountId] = useState<number>(0);
   const [keyword, setKeyword] = useState('');
   const [maxPosts, setMaxPosts] = useState(20);
-  const [minLikes, setMinLikes] = useState(0);
+  const [minLikesInput, setMinLikesInput] = useState('');
 
   // Available accounts: browser open and not currently running a task
   const availableAccounts = accounts.filter(a =>
@@ -39,6 +39,9 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
     }
 
     setLoading(true);
+
+    // Parse minLikes from string input (empty = 0)
+    const minLikes = minLikesInput.trim() === '' ? 0 : parseInt(minLikesInput, 10) || 0;
 
     try {
       const response = await startScrapeAsync({
@@ -60,6 +63,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
       // Reset form for next task
       setAccountId(0);
       setKeyword('');
+      setMinLikesInput('');
     } catch (error) {
       console.error('Scrape failed:', error);
       alert(error instanceof Error ? error.message : 'Scrape failed');
@@ -147,10 +151,15 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
             </label>
             <input
               id="min-likes-input"
-              type="number"
-              min={0}
-              value={minLikes}
-              onChange={(e) => setMinLikes(Number(e.target.value))}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              value={minLikesInput}
+              onChange={(e) => {
+                // Only allow digits
+                const value = e.target.value.replace(/[^0-9]/g, '');
+                setMinLikesInput(value);
+              }}
               placeholder="0 = no filter"
               className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm placeholder-stone-600 focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all"
             />
