@@ -1,8 +1,42 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.1 - REST API client functions with SSE support, cancel, and delete
-// Updated: Added startScrapeAsync, cancelScrape, deleteScrapeResult
+// Version: 1.3 - Added XHSPost and ScrapeResultData types for visual preview
+// Changes: Added post data types for displaying scrape results as cards
+// Previous: Added skip_videos filter option to ScrapeRequest
 
 const API_BASE = 'http://localhost:8000/api';
+
+// XHS Post data structure from scrape results
+export interface XHSPost {
+  note_id: string;
+  permanent_url: string;
+  tokenized_url: string;
+  title: string;
+  author: string;
+  author_avatar: string;
+  author_profile_url: string;
+  likes: number;
+  cover_image: string;
+  publish_date: string;
+  card_width: number;
+  card_height: number;
+  is_video: boolean;
+  scraped_at: string;
+  content: string;
+  images: string[];
+  hashtags: string[];
+  collects: number;
+  comments: number;
+}
+
+// Scrape result JSON structure
+export interface ScrapeResultData {
+  keyword: string;
+  account_id: number;
+  scraped_at: string;
+  scrape_mode: string;
+  total_posts: number;
+  posts: XHSPost[];
+}
 
 // Types
 export interface Account {
@@ -30,6 +64,7 @@ export interface ScrapeRequest {
   min_likes: number;
   min_collects: number;
   min_comments: number;
+  skip_videos: boolean;
 }
 
 export interface ScrapeResponse {
