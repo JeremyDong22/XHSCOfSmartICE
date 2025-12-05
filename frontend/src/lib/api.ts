@@ -1,5 +1,6 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.0 - REST API client functions
+// Version: 1.1 - REST API client functions with SSE support, cancel, and delete
+// Updated: Added startScrapeAsync, cancelScrape, deleteScrapeResult
 
 const API_BASE = 'http://localhost:8000/api';
 
@@ -35,6 +36,12 @@ export interface ScrapeResponse {
   success: boolean;
   posts_count: number;
   filepath: string;
+}
+
+export interface ScrapeStartResponse {
+  success: boolean;
+  task_id: string;
+  message: string;
 }
 
 export interface ResultFile {
@@ -157,6 +164,29 @@ export async function startScrape(request: ScrapeRequest): Promise<ScrapeRespons
   return res.json();
 }
 
+export async function startScrapeAsync(request: ScrapeRequest): Promise<ScrapeStartResponse> {
+  const res = await fetch(`${API_BASE}/scrape/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to start scrape');
+  }
+  return res.json();
+}
+
+export async function cancelScrape(taskId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/scrape/cancel/${taskId}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to cancel scrape');
+  }
+}
+
 export async function getScrapeResults(): Promise<ResultFile[]> {
   const res = await fetch(`${API_BASE}/scrape/results`);
   if (!res.ok) throw new Error('Failed to fetch results');
@@ -167,4 +197,14 @@ export async function getScrapeResult(filename: string): Promise<unknown> {
   const res = await fetch(`${API_BASE}/scrape/results/${filename}`);
   if (!res.ok) throw new Error('Failed to fetch result');
   return res.json();
+}
+
+export async function deleteScrapeResult(filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/scrape/results/${filename}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to delete result');
+  }
 }

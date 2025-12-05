@@ -1,10 +1,10 @@
 // Account card component for displaying individual account info
-// Version: 1.0 - Shows account status, session, browser controls
+// Version: 2.0 - Anthropic-inspired dark theme with muted semantic badges
 
 'use client';
 
-import { Account, openBrowser, closeBrowser, deleteAccount } from '@/lib/api';
 import { useState } from 'react';
+import { Account, openBrowser, closeBrowser, deleteAccount } from '@/lib/api';
 
 interface AccountCardProps {
   account: Account;
@@ -41,9 +41,8 @@ export default function AccountCard({ account, onRefresh }: AccountCardProps) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Are you sure you want to delete Account ${account.account_id}? This will also delete browser session data.`)) {
-      return;
-    }
+    if (!confirm(`Delete Account ${account.account_id}? This cannot be undone.`)) return;
+
     setLoading(true);
     try {
       await deleteAccount(account.account_id);
@@ -57,52 +56,43 @@ export default function AccountCard({ account, onRefresh }: AccountCardProps) {
   };
 
   return (
-    <div className={`bg-white rounded-xl p-5 shadow-sm border-2 transition-all ${
-      account.browser_open ? 'border-green-400' : 'border-transparent'
-    }`}>
+    <div className="bg-stone-800 rounded-xl p-5 border border-stone-700 transition-all hover:border-stone-600">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg ${
-            account.active ? 'bg-gradient-to-br from-pink-500 to-rose-500' : 'bg-gray-400'
-          }`}>
-            {account.account_id}
+          <div className="w-10 h-10 bg-stone-700 rounded-full flex items-center justify-center">
+            <span className="font-mono text-sm text-stone-300">
+              {account.account_id}
+            </span>
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">
+            <div className="font-medium text-stone-50">
               {account.nickname || `Account ${account.account_id}`}
-            </h3>
-            <div className="flex gap-2 mt-1">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${
-                account.active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {account.active ? 'Active' : 'Inactive'}
-              </span>
-              {account.has_session && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-                  Session
-                </span>
-              )}
+            </div>
+            <div className="font-mono text-xs text-stone-500">
+              ID: {account.account_id}
             </div>
           </div>
         </div>
 
-        {/* Browser status indicator */}
-        {account.browser_open && (
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-            <span className="text-xs text-green-600 font-medium">Browser Open</span>
-          </div>
+        {/* Status Badge */}
+        {account.browser_open ? (
+          <span className="font-mono text-xs px-2 py-1 rounded bg-[rgba(16,185,129,0.15)] text-emerald-300 border border-[rgba(16,185,129,0.25)]">
+            ACTIVE
+          </span>
+        ) : (
+          <span className="font-mono text-xs px-2 py-1 rounded bg-[rgba(120,113,108,0.15)] text-stone-400 border border-[rgba(120,113,108,0.25)]">
+            OFFLINE
+          </span>
         )}
       </div>
 
-      {/* Info */}
-      <div className="text-sm text-gray-500 mb-4 space-y-1">
-        <p>Created: {new Date(account.created_at).toLocaleDateString()}</p>
-        {account.last_used && (
-          <p>Last used: {new Date(account.last_used).toLocaleDateString()}</p>
-        )}
-      </div>
+      {/* Metadata */}
+      {account.last_scraped && (
+        <div className="font-mono text-xs text-stone-500 mb-4">
+          Last scraped: {new Date(account.last_scraped).toLocaleString()}
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex gap-2">
@@ -110,25 +100,37 @@ export default function AccountCard({ account, onRefresh }: AccountCardProps) {
           <button
             onClick={handleCloseBrowser}
             disabled={loading}
-            className="flex-1 px-3 py-2 bg-orange-100 text-orange-700 rounded-lg text-sm font-medium hover:bg-orange-200 transition-colors disabled:opacity-50"
+            className="flex-1 px-4 py-2 bg-stone-700 text-stone-200 border border-stone-600 rounded-lg text-sm font-medium transition-all hover:bg-stone-600 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Closing...' : 'Close Browser'}
+            Close Browser
           </button>
         ) : (
           <button
             onClick={handleOpenBrowser}
-            disabled={loading || !account.active}
-            className="flex-1 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg text-sm font-medium hover:bg-blue-200 transition-colors disabled:opacity-50"
+            disabled={loading}
+            className="flex-1 px-4 py-2 bg-[#D97757] text-white rounded-lg text-sm font-medium transition-all hover:bg-[#E8886A] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Opening...' : 'Open Browser'}
+            Open Browser
           </button>
         )}
         <button
           onClick={handleDelete}
           disabled={loading}
-          className="px-3 py-2 bg-red-100 text-red-700 rounded-lg text-sm font-medium hover:bg-red-200 transition-colors disabled:opacity-50"
+          className="px-3 py-2 bg-[rgba(239,68,68,0.2)] text-red-300 border border-[rgba(239,68,68,0.3)] rounded-lg transition-all hover:bg-[rgba(239,68,68,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Delete account"
         >
-          Delete
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className="h-4 w-4"
+            viewBox="0 0 20 20"
+            fill="currentColor"
+          >
+            <path
+              fillRule="evenodd"
+              d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+              clipRule="evenodd"
+            />
+          </svg>
         </button>
       </div>
     </div>

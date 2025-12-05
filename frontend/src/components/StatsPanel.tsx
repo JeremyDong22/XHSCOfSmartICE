@@ -1,5 +1,7 @@
-// Stats panel component for dashboard overview
-// Version: 1.0 - Displays account and browser statistics
+// Stats panel component displaying dashboard metrics
+// Version: 2.0 - Anthropic-inspired dark theme with monospace numbers
+
+'use client';
 
 import { Stats } from '@/lib/api';
 
@@ -11,32 +13,53 @@ interface StatsPanelProps {
 export default function StatsPanel({ stats, loading }: StatsPanelProps) {
   if (loading) {
     return (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-white rounded-xl p-6 shadow-sm animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
-            <div className="h-8 bg-gray-200 rounded w-12"></div>
+          <div key={i} className="bg-stone-900 border border-stone-700 rounded-xl p-4 animate-pulse">
+            <div className="h-7 bg-stone-700 rounded w-16 mb-2"></div>
+            <div className="h-4 bg-stone-700 rounded w-24"></div>
           </div>
         ))}
       </div>
     );
   }
 
-  if (!stats) return null;
-
   const statItems = [
-    { label: 'Total Accounts', value: stats.total, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { label: 'Active Accounts', value: stats.active, color: 'text-green-600', bg: 'bg-green-50' },
-    { label: 'With Session', value: stats.with_session, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { label: 'Browsers Open', value: stats.browsers_open, color: 'text-orange-600', bg: 'bg-orange-50' },
+    {
+      value: stats?.total_accounts ?? 0,
+      label: 'Total Accounts',
+      colorClass: 'text-emerald-300',
+    },
+    {
+      value: stats?.open_browsers ?? 0,
+      label: 'Open Browsers',
+      colorClass: 'text-blue-300',
+    },
+    {
+      value: stats?.total_scraped ?? 0,
+      label: 'Posts Scraped',
+      colorClass: 'text-[#D97757]',
+    },
+    {
+      value: stats?.active_tasks ?? 0,
+      label: 'Active Tasks',
+      colorClass: 'text-amber-300',
+    },
   ];
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-      {statItems.map((item) => (
-        <div key={item.label} className={`${item.bg} rounded-xl p-6 shadow-sm`}>
-          <p className="text-gray-600 text-sm font-medium">{item.label}</p>
-          <p className={`text-3xl font-bold ${item.color} mt-1`}>{item.value}</p>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {statItems.map((item, index) => (
+        <div
+          key={index}
+          className="bg-stone-900 border border-stone-700 rounded-xl p-4"
+        >
+          <div className={`font-mono text-2xl font-semibold ${item.colorClass}`}>
+            {item.value.toLocaleString()}
+          </div>
+          <div className="text-xs text-stone-500 mt-1">
+            {item.label}
+          </div>
         </div>
       ))}
     </div>

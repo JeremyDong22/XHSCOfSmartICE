@@ -1,0 +1,108 @@
+# Scrape manager for tracking active scraping tasks
+# Version: 1.0 - Manages active scrape tasks with cancellation and logging support
+# Created: 2025-12-06 - Added for real-time scraping management with SSE support
+
+import asyncio
+from typing import Dict, Optional, Callable
+from dataclasses import dataclass
+from datetime import datetime
+
+
+@dataclass
+class ActiveScrape:
+    """Active scraping task"""
+    task_id: str
+    account_id: int
+    keyword: str
+    started_at: str
+    status: str  # running, completed, cancelled, failed
+    asyncio_task: Optional[asyncio.Task] = None
+    cancel_requested: bool = False
+
+
+class ScrapeManager:
+    """Manages active scraping tasks"""
+
+    def __init__(self):
+        self.active_scrapes: Dict[str, ActiveScrape] = {}
+        self.log_callbacks: Dict[str, list] = {}  # task_id -> list of callback functions
+
+    def create_scrape(self, task_id: str, account_id: int, keyword: str) -> ActiveScrape:
+        """Create a new active scrape task"""
+        scrape = ActiveScrape(
+            task_id=task_id,
+            account_id=account_id,
+            keyword=keyword,
+            started_at=datetime.now().isoformat(),
+            status="running"
+        )
+        self.active_scrapes[task_id] = scrape
+        self.log_callbacks[task_id] = []
+        return scrape
+
+    def get_scrape(self, task_id: str) -> Optional[ActiveScrape]:
+        """Get active scrape by task ID"""
+        return self.active_scrapes.get(task_id)
+
+    def set_task(self, task_id: str, asyncio_task: asyncio.Task):
+        """Set the asyncio task for a scrape"""
+        if task_id in self.active_scrapes:
+            self.active_scrapes[task_id].asyncio_task = asyncio_task
+
+    def cancel_scrape(self, task_id: str) -> bool:
+        """Request cancellation of a scrape task"""
+        scrape = self.active_scrapes.get(task_id)
+        if not scrape:
+            return False
+
+        scrape.cancel_requested = True
+        if scrape.asyncio_task and not scrape.asyncio_task.done():
+            scrape.asyncio_task.cancel()
+
+        return True
+
+    def is_cancelled(self, task_id: str) -> bool:
+        """Check if scrape has been cancelled"""
+        scrape = self.active_scrapes.get(task_id)
+        return scrape.cancel_requested if scrape else False
+
+    def complete_scrape(self, task_id: str, status: str = "completed"):
+        """Mark scrape as completed/failed"""
+        if task_id in self.active_scrapes:
+            self.active_scrapes[task_id].status = status
+            # Clean up after a delay
+            asyncio.create_task(self._cleanup_scrape(task_id))
+
+    async def _cleanup_scrape(self, task_id: str):
+        """Clean up scrape task after delay"""
+        await asyncio.sleep(60)  # Keep for 1 minute for final log retrieval
+        if task_id in self.active_scrapes:
+            del self.active_scrapes[task_id]
+        if task_id in self.log_callbacks:
+            del self.log_callbacks[task_id]
+
+    def add_log_callback(self, task_id: str, callback: Callable):
+        """Add a callback for log messages"""
+        if task_id in self.log_callbacks:
+            self.log_callbacks[task_id].append(callback)
+
+    def remove_log_callback(self, task_id: str, callback: Callable):
+        """Remove a callback"""
+        if task_id in self.log_callbacks:
+            try:
+                self.log_callbacks[task_id].remove(callback)
+            except ValueError:
+                pass
+
+    async def send_log(self, task_id: str, message: str):
+        """Send log message to all callbacks"""
+        if task_id in self.log_callbacks:
+            for callback in self.log_callbacks[task_id]:
+                try:
+                    await callback(message)
+                except Exception as e:
+                    print(f"Error sending log: {e}")
+
+    def get_all_active(self) -> Dict[str, ActiveScrape]:
+        """Get all active scrapes"""
+        return {k: v for k, v in self.active_scrapes.items() if v.status == "running"}

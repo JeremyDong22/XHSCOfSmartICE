@@ -1,19 +1,23 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.1 - REST API endpoints for account, browser, and scraping management
-# Updated: Added sync endpoints for user_data consistency
+# Version: 1.2 - REST API endpoints for account, browser, and scraping management
+# Updated: Added SSE for real-time logs, cancel scrape, delete results endpoints
 
 import os
 import json
+import uuid
+import asyncio
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from account_manager import AccountManager, BASE_DIR
 from browser_manager import BrowserManager
 from xiaohongshu_scraper import run_scrape_task, OUTPUT_DIR
 from data_models import ScrapeFilter
+from scrape_manager import ScrapeManager
 
 # Pydantic models for API requests/responses
 class AccountResponse(BaseModel):
@@ -56,6 +60,11 @@ class ScrapeResponse(BaseModel):
     posts_count: int
     filepath: str
 
+class ScrapeStartResponse(BaseModel):
+    success: bool
+    task_id: str
+    message: str
+
 class ResultFile(BaseModel):
     filename: str
     size: int
@@ -64,16 +73,18 @@ class ResultFile(BaseModel):
 # Global managers
 account_manager: AccountManager = None
 browser_manager: BrowserManager = None
+scrape_manager: ScrapeManager = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global account_manager, browser_manager
+    global account_manager, browser_manager, scrape_manager
 
     # Startup
     account_manager = AccountManager()
     browser_manager = BrowserManager(account_manager)
+    scrape_manager = ScrapeManager()
     await browser_manager.start()
 
     yield
@@ -300,9 +311,9 @@ async def open_all_browsers():
 
 
 # Scraping endpoints
-@app.post("/api/scrape/start", response_model=ScrapeResponse)
+@app.post("/api/scrape/start", response_model=ScrapeStartResponse)
 async def start_scrape(request: ScrapeRequest):
-    """Start a scraping task"""
+    """Start a scraping task (returns task_id for SSE streaming)"""
     # Validate account and browser
     if not browser_manager.is_browser_open(request.account_id):
         raise HTTPException(status_code=400, detail="Browser not open for this account")
@@ -310,6 +321,12 @@ async def start_scrape(request: ScrapeRequest):
     context = browser_manager.get_context(request.account_id)
     if not context:
         raise HTTPException(status_code=500, detail="Failed to get browser context")
+
+    # Create task ID
+    task_id = str(uuid.uuid4())
+
+    # Create active scrape
+    scrape_manager.create_scrape(task_id, request.account_id, request.keyword)
 
     # Create filters
     filters = ScrapeFilter(
@@ -319,19 +336,124 @@ async def start_scrape(request: ScrapeRequest):
         max_posts=request.max_posts
     )
 
-    # Run scrape task
-    posts, filepath = await run_scrape_task(
-        context=context,
-        keyword=request.keyword,
-        account_id=request.account_id,
-        filters=filters
+    # Define progress callback
+    async def progress_callback(message: str):
+        await scrape_manager.send_log(task_id, message)
+
+    # Start scrape task in background
+    async def run_task():
+        try:
+            await scrape_manager.send_log(task_id, f"Starting scrape for '{request.keyword}'...")
+
+            posts, filepath = await run_scrape_task(
+                context=context,
+                keyword=request.keyword,
+                account_id=request.account_id,
+                filters=filters,
+                progress_callback=progress_callback,
+                cancel_check=lambda: scrape_manager.is_cancelled(task_id)
+            )
+
+            if scrape_manager.is_cancelled(task_id):
+                await scrape_manager.send_log(task_id, f"Scrape cancelled. Saved {len(posts)} posts.")
+                scrape_manager.complete_scrape(task_id, "cancelled")
+            else:
+                await scrape_manager.send_log(task_id, f"Scrape complete! Found {len(posts)} posts. Saved to {filepath}")
+                scrape_manager.complete_scrape(task_id, "completed")
+        except asyncio.CancelledError:
+            await scrape_manager.send_log(task_id, "Scrape cancelled by user")
+            scrape_manager.complete_scrape(task_id, "cancelled")
+        except Exception as e:
+            await scrape_manager.send_log(task_id, f"Error: {str(e)}")
+            scrape_manager.complete_scrape(task_id, "failed")
+
+    task = asyncio.create_task(run_task())
+    scrape_manager.set_task(task_id, task)
+
+    return ScrapeStartResponse(
+        success=True,
+        task_id=task_id,
+        message="Scraping started. Connect to /api/scrape/logs/{task_id} for real-time updates."
     )
 
-    return ScrapeResponse(
-        success=True,
-        posts_count=len(posts),
-        filepath=filepath
+
+@app.get("/api/scrape/logs/{task_id}")
+async def scrape_logs(task_id: str):
+    """Stream scraping logs via SSE"""
+    scrape = scrape_manager.get_scrape(task_id)
+    if not scrape:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    async def event_generator():
+        # Create a queue for this SSE connection
+        log_queue = asyncio.Queue()
+
+        # Callback to add logs to queue
+        async def queue_callback(message: str):
+            await log_queue.put(message)
+
+        # Register callback
+        scrape_manager.add_log_callback(task_id, queue_callback)
+
+        try:
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'status': scrape.status})}\n\n"
+
+            # Stream logs until task completes
+            while True:
+                try:
+                    # Wait for log message with timeout
+                    message = await asyncio.wait_for(log_queue.get(), timeout=1.0)
+                    yield f"data: {json.dumps({'type': 'log', 'message': message})}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield f": keepalive\n\n"
+
+                # Check if task is done
+                current_scrape = scrape_manager.get_scrape(task_id)
+                if current_scrape and current_scrape.status != "running":
+                    yield f"data: {json.dumps({'type': 'status', 'status': current_scrape.status})}\n\n"
+                    break
+
+        finally:
+            # Cleanup
+            scrape_manager.remove_log_callback(task_id, queue_callback)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )
+
+
+@app.post("/api/scrape/cancel/{task_id}")
+async def cancel_scrape(task_id: str):
+    """Cancel an ongoing scrape task"""
+    success = scrape_manager.cancel_scrape(task_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or already completed")
+
+    return {"success": True, "message": "Cancellation requested"}
+
+
+@app.get("/api/scrape/status/{task_id}")
+async def get_scrape_status(task_id: str):
+    """Get status of a scrape task"""
+    scrape = scrape_manager.get_scrape(task_id)
+    if not scrape:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    return {
+        "task_id": task_id,
+        "status": scrape.status,
+        "keyword": scrape.keyword,
+        "account_id": scrape.account_id,
+        "started_at": scrape.started_at
+    }
 
 
 @app.get("/api/scrape/results", response_model=List[ResultFile])
@@ -362,6 +484,25 @@ async def get_scrape_result(filename: str):
 
     with open(filepath, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+@app.delete("/api/scrape/results/{filename}")
+async def delete_scrape_result(filename: str):
+    """Delete a scrape result file"""
+    filepath = os.path.join(OUTPUT_DIR, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Security check - only allow deleting .json files in OUTPUT_DIR
+    if not filename.endswith('.json'):
+        raise HTTPException(status_code=400, detail="Can only delete .json files")
+
+    try:
+        os.remove(filepath)
+        return {"success": True, "message": f"Deleted {filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
 
 if __name__ == "__main__":

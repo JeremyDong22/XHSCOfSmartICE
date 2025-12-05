@@ -1,5 +1,6 @@
-// XHS Multi-Account Scraper Dashboard
-// Version: 1.0 - Main dashboard page with account management and scraping
+// XHS Multi-Account Scraper Dashboard - Redesigned
+// Version: 2.0 - Anthropic-inspired dark theme with terracotta accents
+// Framework: Next.js 16 + React 19 + Tailwind CSS
 
 'use client';
 
@@ -23,8 +24,8 @@ export default function Dashboard() {
         getAccounts(),
         getStats(),
       ]);
-      setAccounts(accountsData);
-      setStats(statsData);
+      setAccounts(prev => JSON.stringify(prev) === JSON.stringify(accountsData) ? prev : accountsData);
+      setStats(prev => JSON.stringify(prev) === JSON.stringify(statsData) ? prev : statsData);
     } catch (error) {
       console.error('Failed to load data:', error);
     } finally {
@@ -34,7 +35,6 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-    // Auto-refresh every 5 seconds
     const interval = setInterval(loadData, 5000);
     return () => clearInterval(interval);
   }, [loadData]);
@@ -84,16 +84,20 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-stone-900">
       {/* Header */}
-      <header className="bg-gradient-to-r from-pink-500 to-rose-500 text-white py-6 px-8 shadow-lg">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold">XHS Multi-Account Scraper</h1>
-          <p className="text-pink-100 mt-1">Manage accounts and scrape Xiaohongshu posts</p>
+      <header className="bg-stone-800 border-b border-stone-700 py-6 px-8">
+        <div className="max-w-[1400px] mx-auto">
+          <h1 className="text-2xl font-semibold text-stone-50 tracking-tight">
+            XHS Multi-Account Scraper
+          </h1>
+          <p className="text-sm text-stone-500 mt-1 font-mono">
+            Manage accounts and scrape Xiaohongshu posts
+          </p>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-8 py-8">
+      <main className="max-w-[1400px] mx-auto px-8 py-8">
         {/* Stats Panel */}
         <StatsPanel stats={stats} loading={loading} />
 
@@ -102,21 +106,21 @@ export default function Dashboard() {
           <button
             onClick={handleAddAccount}
             disabled={actionLoading}
-            className="px-4 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors disabled:opacity-50"
+            className="px-5 py-2.5 bg-[rgba(16,185,129,0.2)] text-emerald-300 border border-[rgba(16,185,129,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(16,185,129,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             + Add New Account
           </button>
           <button
             onClick={handleOpenAll}
             disabled={actionLoading}
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg font-medium hover:bg-blue-600 transition-colors disabled:opacity-50"
+            className="px-5 py-2.5 bg-[rgba(59,130,246,0.2)] text-blue-300 border border-[rgba(59,130,246,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Open All Browsers
           </button>
           <button
             onClick={handleCloseAll}
             disabled={actionLoading}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
+            className="px-5 py-2.5 bg-[rgba(245,158,11,0.2)] text-amber-300 border border-[rgba(245,158,11,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(245,158,11,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Close All Browsers
           </button>
@@ -126,28 +130,29 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Accounts Section */}
           <div className="lg:col-span-2">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Accounts</h2>
+            <h2 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-4">
+              Accounts
+            </h2>
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {[...Array(4)].map((_, i) => (
-                  <div key={i} className="bg-white rounded-xl p-5 shadow-sm animate-pulse">
+                  <div key={i} className="bg-stone-800 rounded-xl p-5 border border-stone-700 animate-pulse">
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                      <div className="w-10 h-10 bg-stone-700 rounded-full"></div>
                       <div className="flex-1">
-                        <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
-                        <div className="h-3 bg-gray-200 rounded w-16"></div>
+                        <div className="h-4 bg-stone-700 rounded w-24 mb-2"></div>
+                        <div className="h-3 bg-stone-700 rounded w-16"></div>
                       </div>
                     </div>
-                    <div className="h-3 bg-gray-200 rounded w-full mb-4"></div>
                     <div className="flex gap-2">
-                      <div className="h-9 bg-gray-200 rounded flex-1"></div>
-                      <div className="h-9 bg-gray-200 rounded w-16"></div>
+                      <div className="h-9 bg-stone-700 rounded flex-1"></div>
+                      <div className="h-9 bg-stone-700 rounded w-16"></div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : accounts.length === 0 ? (
-              <div className="bg-white rounded-xl p-8 text-center text-gray-500">
+              <div className="bg-stone-800 rounded-xl p-8 text-center text-stone-500 border border-stone-700">
                 <p>No accounts yet. Click &quot;Add New Account&quot; to get started.</p>
               </div>
             ) : (
@@ -175,8 +180,8 @@ export default function Dashboard() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-16 py-6 text-center text-gray-500 text-sm">
-        <p>XHS Multi-Account Scraper &copy; 2024</p>
+      <footer className="mt-16 py-6 text-center text-stone-600 text-sm font-mono">
+        <p>XHS Multi-Account Scraper</p>
       </footer>
     </div>
   );
