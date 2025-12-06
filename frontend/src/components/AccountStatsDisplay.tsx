@@ -1,5 +1,6 @@
 // Account statistics display component with usage alerts
-// Version: 1.0 - Shows account usage metrics with color-coded risk indicators
+// Version: 1.1 - Reorganized to show hourly metrics in main view, today/lifetime in dropdown
+// Changes: Main view shows only this hour stats (scrapes, posts, opens). Dropdown shows today + lifetime side-by-side.
 // Purpose: Display scrape counts, browser opens, and duration with anti-crawling alerts
 
 'use client';
@@ -26,18 +27,17 @@ function getScrapeHourlyAlertColor(count: number): string {
   return 'text-green-400 bg-green-900/30';
 }
 
-// Helper: Get alert color for browser opens today
-function getBrowserOpensAlertColor(count: number): string {
+// Helper: Get alert color for posts scraped this hour
+function getPostsHourlyAlertColor(count: number): string {
   if (count > 10) return 'text-red-400 bg-red-900/30';
   if (count > 5) return 'text-yellow-400 bg-yellow-900/30';
   return 'text-green-400 bg-green-900/30';
 }
 
-// Helper: Get alert color for browser duration today
-function getBrowserDurationAlertColor(seconds: number): string {
-  const hours = seconds / 3600;
-  if (hours > 4) return 'text-red-400 bg-red-900/30';
-  if (hours > 2) return 'text-yellow-400 bg-yellow-900/30';
+// Helper: Get alert color for browser opens this hour
+function getBrowserOpensHourlyAlertColor(count: number): string {
+  if (count > 10) return 'text-red-400 bg-red-900/30';
+  if (count > 5) return 'text-yellow-400 bg-yellow-900/30';
   return 'text-green-400 bg-green-900/30';
 }
 
@@ -69,76 +69,72 @@ export default function AccountStatsDisplay({ stats, loading }: AccountStatsDisp
         Last used: {lastUsed}
       </div>
 
-      {/* Stats Row */}
+      {/* Main View - This Hour Stats Only */}
       <div className="flex flex-wrap gap-2 text-xs font-mono">
-        {/* Today Stats */}
-        <div className="flex items-center gap-2">
-          <span className="text-stone-500">Today:</span>
+        <span className="text-stone-500">This hour:</span>
 
-          {/* Scrapes Today */}
-          <span className="text-stone-400">
-            {stats.today.scrape_count} scr
-          </span>
+        {/* Scrapes This Hour - with alert */}
+        <span
+          className={`px-1.5 py-0.5 rounded ${getScrapeHourlyAlertColor(stats.this_hour.scrape_count)}`}
+          title={`Scrapes this hour: ${stats.this_hour.scrape_count}\n${
+            stats.this_hour.scrape_count > 10 ? 'Warning: High frequency!' :
+            stats.this_hour.scrape_count > 5 ? 'Caution: Moderate frequency' :
+            'Safe: Low frequency'
+          }`}
+        >
+          {stats.this_hour.scrape_count} scrapes
+        </span>
 
-          {/* Browser Opens Today - with alert */}
-          <span
-            className={`px-1.5 py-0.5 rounded ${getBrowserOpensAlertColor(stats.today.browser_opens)}`}
-            title={`Browser opens today: ${stats.today.browser_opens}\n${
-              stats.today.browser_opens > 10 ? 'Warning: High activity!' :
-              stats.today.browser_opens > 5 ? 'Caution: Moderate activity' :
-              'Safe: Low activity'
-            }`}
-          >
-            {stats.today.browser_opens} opn
-          </span>
-
-          {/* Browser Duration Today - with alert */}
-          <span
-            className={`px-1.5 py-0.5 rounded ${getBrowserDurationAlertColor(stats.today.browser_duration_seconds)}`}
-            title={`Browser duration today: ${formatDuration(stats.today.browser_duration_seconds)}\n${
-              stats.today.browser_duration_seconds > 14400 ? 'Warning: High usage!' :
-              stats.today.browser_duration_seconds > 7200 ? 'Caution: Moderate usage' :
-              'Safe: Low usage'
-            }`}
-          >
-            {formatDuration(stats.today.browser_duration_seconds)}
-          </span>
-        </div>
-
-        {/* Separator */}
         <span className="text-stone-600">|</span>
 
-        {/* This Hour Stats */}
-        <div className="flex items-center gap-2">
-          <span className="text-stone-500">This hour:</span>
+        {/* Posts Scraped This Hour - with alert */}
+        <span
+          className={`px-1.5 py-0.5 rounded ${getPostsHourlyAlertColor(stats.this_hour.posts_scraped)}`}
+          title={`Posts scraped this hour: ${stats.this_hour.posts_scraped}\n${
+            stats.this_hour.posts_scraped > 10 ? 'Warning: High volume!' :
+            stats.this_hour.posts_scraped > 5 ? 'Caution: Moderate volume' :
+            'Safe: Low volume'
+          }`}
+        >
+          {stats.this_hour.posts_scraped} posts
+        </span>
 
-          {/* Scrapes This Hour - with alert */}
-          <span
-            className={`px-1.5 py-0.5 rounded ${getScrapeHourlyAlertColor(stats.this_hour.scrape_count)}`}
-            title={`Scrapes this hour: ${stats.this_hour.scrape_count}\n${
-              stats.this_hour.scrape_count > 10 ? 'Warning: High frequency!' :
-              stats.this_hour.scrape_count > 5 ? 'Caution: Moderate frequency' :
-              'Safe: Low frequency'
-            }`}
-          >
-            {stats.this_hour.scrape_count} scr
-          </span>
+        <span className="text-stone-600">|</span>
 
-          {/* Browser Opens This Hour */}
-          <span className="text-stone-400">
-            {stats.this_hour.browser_opens} opn
-          </span>
-        </div>
+        {/* Browser Opens This Hour - with alert */}
+        <span
+          className={`px-1.5 py-0.5 rounded ${getBrowserOpensHourlyAlertColor(stats.this_hour.browser_opens)}`}
+          title={`Browser opens this hour: ${stats.this_hour.browser_opens}\n${
+            stats.this_hour.browser_opens > 10 ? 'Warning: High activity!' :
+            stats.this_hour.browser_opens > 5 ? 'Caution: Moderate activity' :
+            'Safe: Low activity'
+          }`}
+        >
+          {stats.this_hour.browser_opens} opens
+        </span>
       </div>
 
-      {/* Lifetime Stats (optional, shown in a collapsed way) */}
+      {/* Dropdown - Today + Lifetime Stats Side-by-Side */}
       <details className="text-xs font-mono text-stone-600">
-        <summary className="cursor-pointer hover:text-stone-500">Lifetime stats</summary>
-        <div className="mt-2 pl-2 space-y-1">
-          <div>Total scrapes: {stats.lifetime.total_scrapes}</div>
-          <div>Posts scraped: {stats.lifetime.total_posts_scraped}</div>
-          <div>Browser opens: {stats.lifetime.total_browser_opens}</div>
-          <div>Total duration: {formatDuration(stats.lifetime.total_browser_duration_seconds)}</div>
+        <summary className="cursor-pointer hover:text-stone-500">More stats</summary>
+        <div className="mt-2 grid grid-cols-2 gap-4 pl-2">
+          {/* Today Column */}
+          <div className="space-y-1">
+            <div className="font-semibold text-stone-400 mb-1.5">Today</div>
+            <div>Scrapes: <span className="font-mono">{stats.today.scrape_count}</span></div>
+            <div>Posts: <span className="font-mono">{stats.today.posts_scraped}</span></div>
+            <div>Opens: <span className="font-mono">{stats.today.browser_opens}</span></div>
+            <div>Duration: <span className="font-mono">{formatDuration(stats.today.browser_duration_seconds)}</span></div>
+          </div>
+
+          {/* Lifetime Column */}
+          <div className="space-y-1">
+            <div className="font-semibold text-stone-400 mb-1.5">Lifetime</div>
+            <div>Scrapes: <span className="font-mono">{stats.lifetime.total_scrapes}</span></div>
+            <div>Posts: <span className="font-mono">{stats.lifetime.total_posts_scraped}</span></div>
+            <div>Opens: <span className="font-mono">{stats.lifetime.total_browser_opens}</span></div>
+            <div>Duration: <span className="font-mono">{formatDuration(stats.lifetime.total_browser_duration_seconds)}</span></div>
+          </div>
         </div>
       </details>
     </div>
