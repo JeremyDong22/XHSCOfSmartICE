@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.3 - Replaced progress bar with animated "Processing..." dots
-// Changes: Simple animated dots instead of progress bar for better UX
-// Previous: Fixed LabelByConfig interface to use imageTarget/textTarget
+// Version: 1.4 - Changed Cancel to Stop button with stop sign icon, show duration on completion
+// Changes: Stop button with octagon icon during processing, display total duration when completed
+// Previous: Simple animated dots instead of progress bar for better UX
 
 'use client';
 
@@ -41,6 +41,25 @@ function formatStartTime(date?: Date): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+// Calculate duration between two dates
+function formatDuration(startedAt?: Date, completedAt?: Date): string {
+  if (!startedAt || !completedAt) return '—';
+
+  const elapsed = Math.floor((completedAt.getTime() - startedAt.getTime()) / 1000);
+
+  if (elapsed < 60) {
+    return `${elapsed}s`;
+  } else if (elapsed < 3600) {
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    return `${mins}m ${secs}s`;
+  } else {
+    const hours = Math.floor(elapsed / 3600);
+    const mins = Math.floor((elapsed % 3600) / 60);
+    return `${hours}h ${mins}m`;
+  }
 }
 
 // Animated dots component for processing state
@@ -138,9 +157,14 @@ function TaskCard({
         {task.status === 'processing' && onCancel && (
           <button
             onClick={onCancel}
-            className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)] transition-colors"
+            className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)] transition-colors"
+            title="Stop processing"
           >
-            Cancel
+            {/* Stop sign (octagon) icon */}
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2zM8 7v10h8V7H8z" />
+            </svg>
+            Stop
           </button>
         )}
       </div>
@@ -181,14 +205,17 @@ function TaskCard({
       {/* Timing info */}
       <div className="flex items-center justify-between text-xs text-stone-500">
         <span>
-          Started: {task.startedAt ? formatStartTime(task.startedAt) : 'Waiting...'}
+          {task.status === 'completed'
+            ? `Completed at ${formatStartTime(task.completedAt)}`
+            : `Started: ${task.startedAt ? formatStartTime(task.startedAt) : 'Waiting...'}`
+          }
         </span>
         {task.status === 'processing' && (
           <span className="text-blue-300 font-mono">{elapsedTime}</span>
         )}
-        {task.status === 'completed' && task.completedAt && (
-          <span className="text-emerald-400">
-            Finished: {formatStartTime(task.completedAt)}
+        {task.status === 'completed' && task.completedAt && task.startedAt && (
+          <span className="text-emerald-400 font-medium">
+            Duration: {formatDuration(task.startedAt, task.completedAt)}
           </span>
         )}
       </div>

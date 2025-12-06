@@ -1,7 +1,7 @@
 # Scrape manager for tracking active scraping tasks
-# Version: 1.1 - Added database integration for scrape task tracking
-# Changes: Create and update ScrapeTask records in database
-# Previous: Added for real-time scraping management with SSE support
+# Version: 1.2 - Fixed background task handling for graceful shutdown
+# Changes: Added task tracking, shorter cleanup delay, cancellation handling
+# Previous: Added database integration for scrape task tracking
 
 import asyncio
 from typing import Dict, Optional, Callable
@@ -33,6 +33,12 @@ class ScrapeManager:
     def __init__(self):
         self.active_scrapes: Dict[str, ActiveScrape] = {}
         self.log_callbacks: Dict[str, list] = {}  # task_id -> list of callback functions
+        self._background_tasks: set = set()  # Track background tasks for cleanup
+
+    def _track_task(self, task: asyncio.Task):
+        """Track a background task"""
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
 
     def create_scrape(self, task_id: str, account_id: int, keyword: str) -> ActiveScrape:
         """Create a new active scrape task"""
@@ -46,8 +52,9 @@ class ScrapeManager:
         self.active_scrapes[task_id] = scrape
         self.log_callbacks[task_id] = []
 
-        # Create task in database
-        asyncio.create_task(self._create_db_task(task_id, account_id, keyword))
+        # Create task in database (fire-and-forget but tracked)
+        task = asyncio.create_task(self._create_db_task(task_id, account_id, keyword))
+        self._track_task(task)
 
         return scrape
 
@@ -82,23 +89,30 @@ class ScrapeManager:
         if task_id in self.active_scrapes:
             self.active_scrapes[task_id].status = status
 
-            # Update database task status
-            asyncio.create_task(self._update_db_task_status(task_id, status))
+            # Update database task status (tracked)
+            task1 = asyncio.create_task(self._update_db_task_status(task_id, status))
+            self._track_task(task1)
 
-            # Update account scrape count
+            # Update account scrape count (tracked)
             scrape = self.active_scrapes[task_id]
-            asyncio.create_task(self._update_scrape_stats(scrape.account_id))
+            task2 = asyncio.create_task(self._update_scrape_stats(scrape.account_id))
+            self._track_task(task2)
 
-            # Clean up after a delay
-            asyncio.create_task(self._cleanup_scrape(task_id))
+            # Clean up after a delay (tracked, shorter delay for faster shutdown)
+            task3 = asyncio.create_task(self._cleanup_scrape(task_id))
+            self._track_task(task3)
 
     async def _cleanup_scrape(self, task_id: str):
         """Clean up scrape task after delay"""
-        await asyncio.sleep(60)  # Keep for 1 minute for final log retrieval
-        if task_id in self.active_scrapes:
-            del self.active_scrapes[task_id]
-        if task_id in self.log_callbacks:
-            del self.log_callbacks[task_id]
+        try:
+            await asyncio.sleep(30)  # Keep for 30 seconds for final log retrieval
+        except asyncio.CancelledError:
+            pass  # Allow cancellation during shutdown
+        finally:
+            if task_id in self.active_scrapes:
+                del self.active_scrapes[task_id]
+            if task_id in self.log_callbacks:
+                del self.log_callbacks[task_id]
 
     def add_log_callback(self, task_id: str, callback: Callable):
         """Add a callback for log messages"""

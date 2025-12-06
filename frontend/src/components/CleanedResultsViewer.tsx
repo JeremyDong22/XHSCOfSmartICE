@@ -1,8 +1,7 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 1.6 - Added delete functionality and fixed font consistency
-// Changes: Added delete button for cleaning results, unified fonts with dashboard styling
-// - Updated LabeledPost interface to match actual backend structure (labels: { label: string })
-// - Filter dropdown shows categories defined during labeling, not extracted from posts
+// Version: 1.4 - Removed non-functional sort options (collects/comments always 0 from search scrape)
+// Changes: Removed sort by collects and comments since scraper only gets likes from search results
+// Features: Metadata display, group by label dropdown, filter by label value, sort by likes only
 
 'use client';
 
@@ -24,7 +23,6 @@ export interface CleaningMetadata {
     textTarget: string | null;
     labelCount: number;
     prompt: string;
-    categories?: string[];  // User-defined categories for filtering
   };
   originalFiles: string[];
   totalPostsInput: number;
@@ -32,13 +30,14 @@ export interface CleaningMetadata {
 }
 
 export interface LabeledPost extends XHSPost {
-  // Labels from backend: { label: "category_name" } - simple structure from Gemini
   labels?: {
-    label?: string;  // Main label assigned by Gemini
+    coverImageLabel?: string;
+    imagesLabel?: string;
+    titleLabel?: string;
+    contentLabel?: string;
+    confidence?: number;
+    reasoning?: string;
   };
-  // Separate fields for confidence and reasoning (at post level, not nested)
-  label_confidence?: number;
-  label_reasoning?: string;
 }
 
 export interface CleanedResultData {
@@ -55,7 +54,6 @@ export interface CleanedResultFile {
 interface CleanedResultsViewerProps {
   files: CleanedResultFile[];
   onFileSelect?: (filename: string) => void;
-  onFileDelete?: (filename: string) => Promise<void>;
   selectedFileData?: CleanedResultData | null;
   loading?: boolean;
 }
@@ -99,8 +97,11 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
 
-  // Get the primary label to display (now using simple structure from backend)
-  const primaryLabel = post.labels?.label;
+  // Get the primary label to display
+  const primaryLabel = post.labels?.coverImageLabel ||
+    post.labels?.contentLabel ||
+    post.labels?.titleLabel ||
+    post.labels?.imagesLabel;
 
   return (
     <a
@@ -190,16 +191,16 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
         </div>
 
         {/* Confidence badge if available */}
-        {post.label_confidence !== undefined && (
+        {post.labels?.confidence !== undefined && (
           <div className="mt-2 flex items-center gap-2">
             <div className="flex-1 h-1 bg-stone-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${post.label_confidence * 100}%` }}
+                style={{ width: `${post.labels.confidence * 100}%` }}
               />
             </div>
             <span className="text-xs text-stone-500">
-              {Math.round(post.label_confidence * 100)}%
+              {Math.round(post.labels.confidence * 100)}%
             </span>
           </div>
         )}
@@ -296,7 +297,6 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
 export default function CleanedResultsViewer({
   files,
   onFileSelect,
-  onFileDelete,
   selectedFileData,
   loading = false,
 }: CleanedResultsViewerProps) {
@@ -306,7 +306,6 @@ export default function CleanedResultsViewer({
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [groupByLabel, setGroupByLabel] = useState(false);
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string>('all');
-  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   // Handle file selection
   const handleFileClick = (filename: string) => {
@@ -318,37 +317,15 @@ export default function CleanedResultsViewer({
     }
   };
 
-  // Handle file deletion
-  const handleDeleteClick = async (e: React.MouseEvent, filename: string) => {
-    e.stopPropagation();
-    if (deletingFile) return;
-
-    setDeletingFile(filename);
-    try {
-      await onFileDelete?.(filename);
-      if (selectedFile === filename) {
-        setSelectedFile(null);
-      }
-    } finally {
-      setDeletingFile(null);
-    }
-  };
-
-  // Get categories from metadata (user-defined during labeling)
-  // Falls back to extracting unique labels from posts if metadata doesn't have categories
+  // Get unique labels from data
   const availableLabels = useMemo(() => {
-    if (!selectedFileData) return [];
-
-    // Prefer categories from metadata - these are the user-defined categories
-    if (selectedFileData.metadata?.labelByCondition?.categories?.length) {
-      return selectedFileData.metadata.labelByCondition.categories;
-    }
-
-    // Fallback: extract unique labels from posts
-    if (!selectedFileData.posts) return [];
+    if (!selectedFileData?.posts) return [];
     const labels = new Set<string>();
     selectedFileData.posts.forEach(post => {
-      const label = post.labels?.label;
+      const label = post.labels?.coverImageLabel ||
+        post.labels?.contentLabel ||
+        post.labels?.titleLabel ||
+        post.labels?.imagesLabel;
       if (label) labels.add(label);
     });
     return Array.from(labels).sort();
@@ -360,10 +337,13 @@ export default function CleanedResultsViewer({
 
     let result = [...selectedFileData.posts];
 
-    // Filter by label (using the simple label structure from backend)
+    // Filter by label
     if (selectedLabelFilter !== 'all') {
       result = result.filter(post => {
-        const label = post.labels?.label;
+        const label = post.labels?.coverImageLabel ||
+          post.labels?.contentLabel ||
+          post.labels?.titleLabel ||
+          post.labels?.imagesLabel;
         return label === selectedLabelFilter;
       });
     }
@@ -384,7 +364,11 @@ export default function CleanedResultsViewer({
 
     const groups: Record<string, LabeledPost[]> = {};
     processedPosts.forEach(post => {
-      const label = post.labels?.label || 'Unlabeled';
+      const label = post.labels?.coverImageLabel ||
+        post.labels?.contentLabel ||
+        post.labels?.titleLabel ||
+        post.labels?.imagesLabel ||
+        'Unlabeled';
       if (!groups[label]) groups[label] = [];
       groups[label].push(post);
     });
