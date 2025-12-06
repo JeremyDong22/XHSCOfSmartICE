@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.2 - Fixed LabelByConfig interface to use imageTarget/textTarget
-// Changes: Updated getOperationSummary to display new label target fields
-// Previous: Added step number badge to header, removed emoji status icons
+// Version: 1.3 - Replaced progress bar with animated "Processing..." dots
+// Changes: Simple animated dots instead of progress bar for better UX
+// Previous: Fixed LabelByConfig interface to use imageTarget/textTarget
 
 'use client';
 
@@ -41,6 +41,23 @@ function formatStartTime(date?: Date): string {
     minute: '2-digit',
     second: '2-digit',
   });
+}
+
+// Animated dots component for processing state
+function AnimatedDots() {
+  const [dots, setDots] = useState('');
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setDots(prev => prev.length >= 3 ? '' : prev + '.');
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <span className="inline-block w-4 text-left">{dots}</span>
+  );
 }
 
 // Status badge component
@@ -152,16 +169,12 @@ function TaskCard({
         </div>
       </div>
 
-      {/* Progress bar for processing tasks */}
+      {/* Animated processing indicator */}
       {task.status === 'processing' && (
-        <div className="mb-2">
-          <div className="h-1.5 bg-stone-700 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-blue-500 to-blue-400 rounded-full transition-all duration-300"
-              style={{ width: `${task.progress || 0}%` }}
-            />
-          </div>
-          <p className="text-xs text-stone-500 mt-1 text-right">{task.progress || 0}%</p>
+        <div className="mb-2 py-2 px-3 bg-[rgba(59,130,246,0.1)] rounded-lg">
+          <p className="text-sm text-blue-300 font-medium">
+            Processing<AnimatedDots />
+          </p>
         </div>
       )}
 

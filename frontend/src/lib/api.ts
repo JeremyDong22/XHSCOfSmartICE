@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.6 - Added Data Cleaning API functions
-// Changes: Added cleaning endpoints for Gemini-based labeling
-// Previous: API_BASE now detects hostname for LAN compatibility
+// Version: 1.7 - Added cleaning task status polling endpoint
+// Changes: Added getCleaningTaskStatus for tracking background task completion
+// Previous: Added cleaning endpoints for Gemini-based labeling
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -357,6 +357,16 @@ export interface CleanedResultData {
   posts: CleanedPost[];
 }
 
+// Cleaning task status for polling background task progress
+export interface CleaningTaskStatus {
+  task_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  started_at?: string;
+  completed_at?: string;
+  output_filename?: string;  // Set when completed
+  error?: string;  // Set when failed
+}
+
 // Data Cleaning API Functions
 export async function startCleaning(request: CleaningRequest): Promise<CleaningStartResponse> {
   const res = await fetch(`${API_BASE}/cleaning/start`, {
@@ -367,6 +377,15 @@ export async function startCleaning(request: CleaningRequest): Promise<CleaningS
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.detail || 'Failed to start cleaning');
+  }
+  return res.json();
+}
+
+export async function getCleaningTaskStatus(taskId: string): Promise<CleaningTaskStatus> {
+  const res = await fetch(`${API_BASE}/cleaning/tasks/${taskId}/status`);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to fetch task status');
   }
   return res.json();
 }

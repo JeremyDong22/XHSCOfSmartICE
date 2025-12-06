@@ -1,8 +1,8 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 1.4 - Updated Label By to support multi-condition selection with two groups
+// Version: 1.5 - Changed default label count from 3 to 2
 // Features: Label By with Image Analysis (cover/all images) and Text Analysis (title/title+content)
 // Contains unified prompt + flexible prompt editors, and queue submission
-// Changes: Split Label By into two mutually-exclusive groups; updated LabelByConfig interface
+// Previous: Split Label By into two mutually-exclusive groups; updated LabelByConfig interface
 
 'use client';
 
@@ -61,7 +61,7 @@ export default function WashingMachine({
     enabled: false,
     imageTarget: null,
     textTarget: null,
-    labelCount: 3,
+    labelCount: 2,
     labels: [],
     prompt: '',
   });

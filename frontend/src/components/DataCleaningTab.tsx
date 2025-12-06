@@ -1,16 +1,18 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 1.5 - Connected to backend API for real Gemini labeling
+// Version: 1.6 - Fixed premature completion by polling backend task status
+// Changes: Poll /api/cleaning/tasks/{id}/status instead of marking completed immediately
 // Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import ScrapeResultsPanel, { EnrichedResultFile } from './ScrapeResultsPanel';
 import WashingMachine, { CleaningTask } from './WashingMachine';
 import ProcessingQueue from './ProcessingQueue';
 import CleanedResultsViewer, { CleanedResultFile, CleanedResultData } from './CleanedResultsViewer';
 import {
   startCleaning,
+  getCleaningTaskStatus,
   getCleanedResults,
   getCleanedResult,
   CleaningRequest,
@@ -31,6 +33,18 @@ export default function DataCleaningTab() {
   const [cleanedFiles, setCleanedFiles] = useState<CleanedResultFile[]>([]);
   const [selectedCleanedData, setSelectedCleanedData] = useState<CleanedResultData | null>(null);
   const [loadingCleanedData, setLoadingCleanedData] = useState(false);
+
+  // Track polling intervals for cleanup - maps frontend task.id -> backend task_id
+  const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const backendTaskIdsRef = useRef<Map<string, string>>(new Map());
+
+  // Cleanup polling intervals on unmount
+  useEffect(() => {
+    return () => {
+      pollingIntervalsRef.current.forEach((interval) => clearInterval(interval));
+      pollingIntervalsRef.current.clear();
+    };
+  }, []);
 
   // Handle files loaded from scrape results panel
   const handleFilesLoaded = useCallback((files: EnrichedResultFile[]) => {
@@ -54,6 +68,62 @@ export default function DataCleaningTab() {
 
   useEffect(() => {
     loadCleanedResults();
+  }, [loadCleanedResults]);
+
+  // Poll for task status until completed or failed
+  const pollTaskStatus = useCallback(async (frontendTaskId: string, backendTaskId: string) => {
+    const POLL_INTERVAL = 2000; // Poll every 2 seconds
+
+    const poll = async () => {
+      try {
+        const status = await getCleaningTaskStatus(backendTaskId);
+
+        if (status.status === 'completed') {
+          // Stop polling
+          const interval = pollingIntervalsRef.current.get(frontendTaskId);
+          if (interval) {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(frontendTaskId);
+          }
+
+          // Mark as completed
+          setTasks(prev => prev.map(t =>
+            t.id === frontendTaskId
+              ? { ...t, status: 'completed' as const, progress: 100, completedAt: new Date() }
+              : t
+          ));
+
+          // Reload cleaned results to show the new file
+          await loadCleanedResults();
+
+        } else if (status.status === 'failed') {
+          // Stop polling
+          const interval = pollingIntervalsRef.current.get(frontendTaskId);
+          if (interval) {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(frontendTaskId);
+          }
+
+          // Mark as failed
+          setTasks(prev => prev.map(t =>
+            t.id === frontendTaskId
+              ? { ...t, status: 'failed' as const, error: status.error || 'Unknown error' }
+              : t
+          ));
+        }
+        // If still processing, continue polling (interval will fire again)
+      } catch (err) {
+        console.error('Error polling task status:', err);
+        // Continue polling on error - backend might be temporarily unavailable
+      }
+    };
+
+    // Start polling
+    const interval = setInterval(poll, POLL_INTERVAL);
+    pollingIntervalsRef.current.set(frontendTaskId, interval);
+
+    // Also do an immediate poll
+    await poll();
   }, [loadCleanedResults]);
 
   // Handle task submission from washing machine - calls real backend API
@@ -88,32 +158,37 @@ export default function DataCleaningTab() {
     ));
 
     try {
-      // Call the backend API
+      // Call the backend API - returns immediately with task_id
       const response = await startCleaning(request);
 
-      // Mark as completed
-      setTasks(prev => prev.map(t =>
-        t.id === task.id
-          ? { ...t, status: 'completed' as const, progress: 100, completedAt: new Date() }
-          : t
-      ));
+      // Store the backend task_id mapping
+      const backendTaskId = (response as unknown as { task_id: string }).task_id;
+      backendTaskIdsRef.current.set(task.id, backendTaskId);
 
-      // Reload cleaned results to show the new file
-      await loadCleanedResults();
+      // Start polling for task completion
+      await pollTaskStatus(task.id, backendTaskId);
 
     } catch (err) {
       console.error('Cleaning task failed:', err);
-      // Mark task as failed (use 'queued' status to indicate error for now)
+      // Mark task as failed
       setTasks(prev => prev.map(t =>
         t.id === task.id
-          ? { ...t, status: 'queued' as const, progress: 0 }
+          ? { ...t, status: 'failed' as const, error: err instanceof Error ? err.message : 'Unknown error' }
           : t
       ));
     }
-  }, [loadCleanedResults]);
+  }, [pollTaskStatus]);
 
   // Handle task cancellation
   const handleCancelTask = useCallback((taskId: string) => {
+    // Stop polling for this task
+    const interval = pollingIntervalsRef.current.get(taskId);
+    if (interval) {
+      clearInterval(interval);
+      pollingIntervalsRef.current.delete(taskId);
+    }
+    backendTaskIdsRef.current.delete(taskId);
+
     setTasks(prev => prev.filter(t => t.id !== taskId));
   }, []);
 

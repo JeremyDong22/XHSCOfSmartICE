@@ -1,13 +1,14 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.8 - Load .env for Gemini API key
-# Changes: Added dotenv loading for production API key
-# Previous: Data cleaning and Gemini labeling integration
+# Version: 2.0 - Added cleaning task status tracking for proper frontend progress
+# Changes: Track cleaning task status (pending/processing/completed/failed), add status endpoint
+# Previous: Fixed reload hang with proper shutdown handling
 
 import os
 import json
 import uuid
 import asyncio
 import logging
+from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
@@ -126,6 +127,20 @@ class CleanedResultFile(BaseModel):
     total_posts: int
 
 
+class CleaningTaskStatus(BaseModel):
+    """Status of a cleaning task for frontend polling"""
+    task_id: str
+    status: Literal["pending", "processing", "completed", "failed"]
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    output_filename: Optional[str] = None  # Set when completed
+    error: Optional[str] = None  # Set when failed
+
+
+# In-memory store for cleaning task statuses (reset on server restart)
+cleaning_task_statuses: Dict[str, CleaningTaskStatus] = {}
+
+
 # Global managers
 account_manager: AccountManager = None
 browser_manager: BrowserManager = None
@@ -133,14 +148,27 @@ scrape_manager: ScrapeManager = None
 browser_event_manager: BrowserEventManager = None
 cleaning_service: DataCleaningService = None
 
+# Shutdown coordination - used to signal SSE connections and background tasks to stop
+shutdown_event: asyncio.Event = None
+background_tasks: set = set()  # Track background tasks for cleanup
+
+
+def track_background_task(task: asyncio.Task):
+    """Register a background task for cleanup on shutdown"""
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global account_manager, browser_manager, scrape_manager, browser_event_manager, cleaning_service
+    global account_manager, browser_manager, scrape_manager, browser_event_manager, cleaning_service, shutdown_event
 
     # Startup
     print("Starting up XHS Scraper API...")
+
+    # Initialize shutdown event
+    shutdown_event = asyncio.Event()
 
     # Initialize database
     try:
@@ -161,6 +189,25 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("Shutting down XHS Scraper API...")
+
+    # Signal all SSE connections and background tasks to stop
+    shutdown_event.set()
+
+    # Cancel all tracked background tasks
+    if background_tasks:
+        print(f"Cancelling {len(background_tasks)} background tasks...")
+        for task in background_tasks:
+            task.cancel()
+        # Wait briefly for tasks to acknowledge cancellation
+        await asyncio.gather(*background_tasks, return_exceptions=True)
+        background_tasks.clear()
+
+    # Cancel any active scrapes
+    if scrape_manager:
+        active_scrapes = scrape_manager.get_all_active()
+        for task_id in active_scrapes:
+            scrape_manager.cancel_scrape(task_id)
+
     await browser_manager.stop()
 
     # Close database connection
@@ -169,6 +216,8 @@ async def lifespan(app: FastAPI):
         print("Database connection closed")
     except Exception as e:
         print(f"Error closing database: {e}")
+
+    print("Shutdown complete")
 
 
 app = FastAPI(
@@ -418,7 +467,7 @@ async def browser_events():
             # Send initial connection confirmation
             yield f"data: {json.dumps({'type': 'connected', 'message': 'Subscribed to browser events'})}\n\n"
 
-            while True:
+            while not (shutdown_event and shutdown_event.is_set()):
                 try:
                     # Wait for events with timeout for keepalive
                     event = await asyncio.wait_for(client_queue.get(), timeout=30.0)
@@ -514,6 +563,7 @@ async def start_scrape(request: ScrapeRequest):
 
     task = asyncio.create_task(run_task())
     scrape_manager.set_task(task_id, task)
+    track_background_task(task)  # Track for cleanup on shutdown
 
     return ScrapeStartResponse(
         success=True,
@@ -544,8 +594,8 @@ async def scrape_logs(task_id: str):
             # Send initial status
             yield f"data: {json.dumps({'type': 'status', 'status': scrape.status})}\n\n"
 
-            # Stream logs until task completes
-            while True:
+            # Stream logs until task completes or shutdown
+            while not (shutdown_event and shutdown_event.is_set()):
                 try:
                     # Wait for log message with timeout
                     message = await asyncio.wait_for(log_queue.get(), timeout=1.0)
@@ -696,23 +746,69 @@ async def start_cleaning(request: CleaningRequest):
     # Run cleaning in background task
     task_id = str(uuid.uuid4())
 
+    # Initialize task status as processing
+    cleaning_task_statuses[task_id] = CleaningTaskStatus(
+        task_id=task_id,
+        status="processing",
+        started_at=datetime.now().isoformat()
+    )
+
     async def run_cleaning_task():
         try:
             logger.info(f"Starting cleaning task {task_id}")
             result = cleaning_service.clean_and_label(config)
             output_path = cleaning_service.save_cleaned_result(result, config.output_filename)
+            output_filename = os.path.basename(output_path)
             logger.info(f"Cleaning task {task_id} completed: {output_path}")
+
+            # Update status to completed
+            cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                task_id=task_id,
+                status="completed",
+                started_at=cleaning_task_statuses[task_id].started_at,
+                completed_at=datetime.now().isoformat(),
+                output_filename=output_filename
+            )
+        except asyncio.CancelledError:
+            logger.info(f"Cleaning task {task_id} cancelled")
+            cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                task_id=task_id,
+                status="failed",
+                started_at=cleaning_task_statuses[task_id].started_at,
+                completed_at=datetime.now().isoformat(),
+                error="Task was cancelled"
+            )
         except Exception as e:
             logger.error(f"Cleaning task {task_id} failed: {e}")
+            cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                task_id=task_id,
+                status="failed",
+                started_at=cleaning_task_statuses[task_id].started_at,
+                completed_at=datetime.now().isoformat(),
+                error=str(e)
+            )
 
-    # Start task in background
-    asyncio.create_task(run_cleaning_task())
+    # Start task in background and track for cleanup
+    cleaning_task = asyncio.create_task(run_cleaning_task())
+    track_background_task(cleaning_task)
 
     return {
         "success": True,
         "task_id": task_id,
         "message": "Cleaning task started. Results will be saved to cleaned_output/"
     }
+
+
+@app.get("/api/cleaning/tasks/{task_id}/status", response_model=CleaningTaskStatus)
+async def get_cleaning_task_status(task_id: str):
+    """
+    Get the status of a cleaning task.
+    Frontend should poll this endpoint to track task progress.
+    """
+    if task_id not in cleaning_task_statuses:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    return cleaning_task_statuses[task_id]
 
 
 @app.get("/api/cleaning/results", response_model=List[CleanedResultFile])
