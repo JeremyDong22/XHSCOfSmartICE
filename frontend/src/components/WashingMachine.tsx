@@ -1,7 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 1.9 - Added separate name/description fields for label categories
-// Changes: Labels now have name (short, for output) and description (detailed criteria for AI inference)
-// Previous: Applied consistent font-mono styling to headers and counts
+// Version: 2.0 - Added rate_limited status to CleaningTask type
+// Changes: Status union now includes 'rate_limited' for API quota handling
+// Previous: Added separate name/description fields for label categories
 // Features: Label By with Image Analysis (cover image only) and Text Analysis (title only)
 
 'use client';
@@ -43,7 +43,7 @@ export interface CleaningTask {
   id: string;
   files: string[];
   config: CleaningConfig;
-  status: 'queued' | 'processing' | 'completed' | 'failed';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'rate_limited';
   startedAt?: Date;
   completedAt?: Date;
   progress?: number;

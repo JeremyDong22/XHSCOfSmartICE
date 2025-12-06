@@ -1,18 +1,19 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 2.6 - Cleaned up debug logging, fixed model definition order
-# Changes: Removed debug logs, CleaningConfigStored now defined before CleaningRequest
-# Previous: Fixed class definition order to resolve NameError
+# Version: 3.0 - Added rate limit handling for Gemini API (429 auto-pause)
+# Changes: Catch RateLimitError and mark tasks as rate_limited with warning message
+# Previous: Added SSE streaming logs for cleaning tasks
 
 import os
 import json
 import uuid
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Literal
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 # Load environment variables from .env file
 load_dotenv()
@@ -20,7 +21,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-# Configure logging
+# Configure logging with more detail
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 from account_manager import AccountManager, BASE_DIR
@@ -35,6 +40,7 @@ from data_cleaning_service import (
     FilterByCondition,
     LabelByCondition,
     LabelCategory,
+    RateLimitError,
     CLEANED_OUTPUT_DIR
 )
 
@@ -199,13 +205,19 @@ CLEANING_TASKS_FILE = os.path.join(BASE_DIR, "cleaning_tasks.json")
 
 def load_cleaning_tasks() -> Dict[str, CleaningTaskFull]:
     """Load cleaning tasks from persistent storage"""
+    start_time = time.time()
+    logger.debug(f"Loading cleaning tasks from {CLEANING_TASKS_FILE}")
     if not os.path.exists(CLEANING_TASKS_FILE):
+        logger.debug("Cleaning tasks file does not exist, returning empty dict")
         return {}
     try:
         with open(CLEANING_TASKS_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
             # Convert dict entries to CleaningTaskFull objects
-            return {k: CleaningTaskFull(**v) for k, v in data.items()}
+            result = {k: CleaningTaskFull(**v) for k, v in data.items()}
+            elapsed = time.time() - start_time
+            logger.debug(f"Loaded {len(result)} cleaning tasks in {elapsed:.3f}s")
+            return result
     except Exception as e:
         logger.error(f"Failed to load cleaning tasks: {e}")
         return {}
@@ -213,10 +225,14 @@ def load_cleaning_tasks() -> Dict[str, CleaningTaskFull]:
 
 def save_cleaning_tasks(tasks: Dict[str, CleaningTaskFull]):
     """Save cleaning tasks to persistent storage"""
+    start_time = time.time()
+    logger.debug(f"Saving {len(tasks)} cleaning tasks to {CLEANING_TASKS_FILE}")
     try:
         with open(CLEANING_TASKS_FILE, 'w', encoding='utf-8') as f:
             # Convert Pydantic models to dicts
             json.dump({k: v.model_dump() for k, v in tasks.items()}, f, indent=2, ensure_ascii=False)
+        elapsed = time.time() - start_time
+        logger.debug(f"Saved cleaning tasks in {elapsed:.3f}s")
     except Exception as e:
         logger.error(f"Failed to save cleaning tasks: {e}")
 
@@ -224,6 +240,53 @@ def save_cleaning_tasks(tasks: Dict[str, CleaningTaskFull]):
 # In-memory store (synced with file)
 cleaning_task_statuses: Dict[str, CleaningTaskStatus] = {}
 cleaning_tasks_full: Dict[str, CleaningTaskFull] = {}
+
+# Cleaning task log queues - maps task_id -> list of subscriber queues
+cleaning_log_queues: Dict[str, List[asyncio.Queue]] = {}
+cleaning_log_history: Dict[str, List[str]] = {}  # Stores recent logs for late subscribers
+
+
+def send_cleaning_log(task_id: str, message: str):
+    """Send a log message to all subscribers of a cleaning task (thread-safe)"""
+    # Store in history (keep last 100 messages)
+    if task_id not in cleaning_log_history:
+        cleaning_log_history[task_id] = []
+    cleaning_log_history[task_id].append(message)
+    if len(cleaning_log_history[task_id]) > 100:
+        cleaning_log_history[task_id] = cleaning_log_history[task_id][-100:]
+
+    # Broadcast to all subscribers
+    if task_id in cleaning_log_queues:
+        for queue in cleaning_log_queues[task_id]:
+            try:
+                queue.put_nowait(message)
+            except asyncio.QueueFull:
+                pass  # Skip if queue is full
+
+
+def add_cleaning_log_subscriber(task_id: str) -> asyncio.Queue:
+    """Add a subscriber queue for a cleaning task's logs"""
+    queue = asyncio.Queue(maxsize=100)
+    if task_id not in cleaning_log_queues:
+        cleaning_log_queues[task_id] = []
+    cleaning_log_queues[task_id].append(queue)
+    return queue
+
+
+def remove_cleaning_log_subscriber(task_id: str, queue: asyncio.Queue):
+    """Remove a subscriber queue for a cleaning task's logs"""
+    if task_id in cleaning_log_queues:
+        try:
+            cleaning_log_queues[task_id].remove(queue)
+            if not cleaning_log_queues[task_id]:
+                del cleaning_log_queues[task_id]
+        except ValueError:
+            pass
+
+
+def get_cleaning_log_history(task_id: str) -> List[str]:
+    """Get the log history for a cleaning task"""
+    return cleaning_log_history.get(task_id, [])
 
 
 # Global managers
@@ -332,6 +395,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request timing middleware for debugging slow requests
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    """Log slow requests (> 1s) to help debug hangs"""
+    start_time = time.time()
+    path = request.url.path
+    method = request.method
+
+    # Skip noisy endpoints for timing logs
+    skip_timing_log = path in ["/api/browsers/events", "/api/accounts/stats"]
+
+    try:
+        response = await call_next(request)
+        elapsed = time.time() - start_time
+
+        # Log slow requests (> 1 second)
+        if elapsed > 1.0 and not skip_timing_log:
+            logger.warning(f"SLOW REQUEST: {method} {path} took {elapsed:.2f}s")
+
+        return response
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"REQUEST FAILED: {method} {path} after {elapsed:.2f}s - {e}")
+        raise
 
 
 # Account endpoints
@@ -875,13 +964,25 @@ async def start_cleaning(request: CleaningRequest):
     async def run_cleaning_task():
         try:
             logger.info(f"Starting cleaning task {task_id}")
+            send_cleaning_log(task_id, "Starting cleaning task...")
+
+            # Progress callback that sends logs to SSE subscribers
+            def progress_callback(message: str):
+                send_cleaning_log(task_id, message)
+
             # Run synchronous blocking operations in thread pool to avoid blocking event loop
             # This allows other API requests and SSE connections to continue working
-            result = await asyncio.to_thread(cleaning_service.clean_and_label, config)
+            result = await asyncio.to_thread(
+                cleaning_service.clean_and_label,
+                config,
+                progress_callback
+            )
+            send_cleaning_log(task_id, "Saving results...")
             output_path = await asyncio.to_thread(cleaning_service.save_cleaned_result, result, config.output_filename)
             output_filename = os.path.basename(output_path)
             completed_at = datetime.now().isoformat()
             logger.info(f"Cleaning task {task_id} completed: {output_path}")
+            send_cleaning_log(task_id, f"✓ Task completed! Output: {output_filename}")
 
             # Update status to completed
             cleaning_task_statuses[task_id] = CleaningTaskStatus(
@@ -902,6 +1003,7 @@ async def start_cleaning(request: CleaningRequest):
         except asyncio.CancelledError:
             completed_at = datetime.now().isoformat()
             logger.info(f"Cleaning task {task_id} cancelled")
+            send_cleaning_log(task_id, "✗ Task was cancelled")
             cleaning_task_statuses[task_id] = CleaningTaskStatus(
                 task_id=task_id,
                 status="failed",
@@ -916,9 +1018,32 @@ async def start_cleaning(request: CleaningRequest):
                 cleaning_tasks_full[frontend_task_id].error = "Task was cancelled"
                 save_cleaning_tasks(cleaning_tasks_full)
 
+        except RateLimitError as e:
+            # Handle Gemini API rate limit (429) - pause task instead of fail
+            completed_at = datetime.now().isoformat()
+            logger.warning(f"Cleaning task {task_id} hit rate limit: {e}")
+            rate_limit_msg = f"⚠️ API Rate Limit (429): {e}. Processed {e.processed_count} posts before pausing."
+            send_cleaning_log(task_id, rate_limit_msg)
+
+            # Mark as rate_limited (special status for frontend to handle)
+            cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                task_id=task_id,
+                status="rate_limited",
+                started_at=cleaning_task_statuses[task_id].started_at,
+                completed_at=completed_at,
+                error=rate_limit_msg
+            )
+            # Update full task data with rate_limited status
+            if frontend_task_id in cleaning_tasks_full:
+                cleaning_tasks_full[frontend_task_id].status = "rate_limited"
+                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                cleaning_tasks_full[frontend_task_id].error = rate_limit_msg
+                save_cleaning_tasks(cleaning_tasks_full)
+
         except Exception as e:
             completed_at = datetime.now().isoformat()
             logger.error(f"Cleaning task {task_id} failed: {e}")
+            send_cleaning_log(task_id, f"✗ Task failed: {str(e)}")
             cleaning_task_statuses[task_id] = CleaningTaskStatus(
                 task_id=task_id,
                 status="failed",
@@ -955,6 +1080,67 @@ async def get_cleaning_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return cleaning_task_statuses[task_id]
+
+
+@app.get("/api/cleaning/logs/{task_id}")
+async def cleaning_logs(task_id: str):
+    """
+    Stream cleaning task logs via SSE.
+    Frontend subscribes to this endpoint to receive real-time progress updates.
+    """
+    async def event_generator():
+        # Subscribe to log queue
+        log_queue = add_cleaning_log_subscriber(task_id)
+
+        try:
+            # Send connection confirmation
+            yield f"data: {json.dumps({'type': 'connected', 'task_id': task_id})}\n\n"
+
+            # Send log history (for late subscribers)
+            history = get_cleaning_log_history(task_id)
+            for msg in history:
+                yield f"data: {json.dumps({'type': 'log', 'message': msg})}\n\n"
+
+            # Stream new logs until task completes or shutdown
+            while not (shutdown_event and shutdown_event.is_set()):
+                try:
+                    # Wait for log message with timeout
+                    message = await asyncio.wait_for(log_queue.get(), timeout=5.0)
+                    yield f"data: {json.dumps({'type': 'log', 'message': message})}\n\n"
+
+                    # Check if task completed
+                    if message.startswith("✓") or message.startswith("✗"):
+                        # Task is done, send status and close
+                        status = cleaning_task_statuses.get(task_id)
+                        if status:
+                            yield f"data: {json.dumps({'type': 'status', 'status': status.status})}\n\n"
+                        break
+
+                except asyncio.TimeoutError:
+                    # Send keepalive
+                    yield f": keepalive\n\n"
+
+                    # Check if task is done
+                    status = cleaning_task_statuses.get(task_id)
+                    if status and status.status in ["completed", "failed"]:
+                        yield f"data: {json.dumps({'type': 'status', 'status': status.status})}\n\n"
+                        break
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Unsubscribe from log queue
+            remove_cleaning_log_subscriber(task_id, log_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.get("/api/cleaning/tasks", response_model=List[CleaningTaskFull])

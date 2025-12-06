@@ -1,16 +1,19 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.5 - Applied consistent font-mono styling to headers and counts
-// Changes: Step title uses font-mono, task counts and file totals use font-mono
-// Previous: Changed Cancel to Stop button, show duration on completion
+// Version: 1.7 - Added rate_limited status styling and warning display
+// Changes: Added amber/orange styling for rate limited tasks, warning message panel
+// Previous: Added 2-column grid layout and foldable log console
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { CleaningTask } from './WashingMachine';
+import { subscribeToCleaningLogs } from '@/lib/api';
 
 interface ProcessingQueueProps {
   tasks: CleaningTask[];
   onCancelTask?: (taskId: string) => void;
+  // Map of frontend task ID to backend task ID (for SSE subscription)
+  backendTaskIds?: Map<string, string>;
 }
 
 // Format elapsed time since task started
@@ -86,6 +89,7 @@ function StatusBadge({ status }: { status: CleaningTask['status'] }) {
     processing: { text: 'Processing', bg: 'bg-[rgba(59,130,246,0.2)]', color: 'text-blue-300' },
     completed: { text: 'Completed', bg: 'bg-[rgba(16,185,129,0.2)]', color: 'text-emerald-300' },
     failed: { text: 'Failed', bg: 'bg-[rgba(239,68,68,0.2)]', color: 'text-red-300' },
+    rate_limited: { text: '⚠️ Rate Limited', bg: 'bg-[rgba(245,158,11,0.2)]', color: 'text-amber-300' },
   };
 
   const config = statusConfig[status];
@@ -97,15 +101,49 @@ function StatusBadge({ status }: { status: CleaningTask['status'] }) {
   );
 }
 
-// Single task card component
+// Single task card component with foldable log console
 function TaskCard({
   task,
   onCancel,
+  backendTaskId,
 }: {
   task: CleaningTask;
   onCancel?: () => void;
+  backendTaskId?: string;
 }) {
   const [elapsedTime, setElapsedTime] = useState('—');
+  const [logsExpanded, setLogsExpanded] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  // Subscribe to logs when task is processing
+  useEffect(() => {
+    if (task.status !== 'processing' || !backendTaskId) return;
+
+    // Auto-expand when processing starts
+    setLogsExpanded(true);
+
+    const cleanup = subscribeToCleaningLogs(
+      backendTaskId,
+      (message) => {
+        setLogs(prev => [...prev, message]);
+      }
+    );
+    cleanupRef.current = cleanup;
+
+    return () => {
+      cleanup();
+      cleanupRef.current = null;
+    };
+  }, [task.status, backendTaskId]);
+
+  // Auto-scroll logs to bottom
+  useEffect(() => {
+    if (logContainerRef.current && logsExpanded) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs, logsExpanded]);
 
   // Update elapsed time every second for processing tasks
   useEffect(() => {
@@ -146,7 +184,9 @@ function TaskCard({
           ? 'border-[rgba(16,185,129,0.3)]'
           : task.status === 'failed'
             ? 'border-[rgba(239,68,68,0.3)]'
-            : 'border-stone-700'
+            : task.status === 'rate_limited'
+              ? 'border-[rgba(245,158,11,0.3)]'
+              : 'border-stone-700'
     }`}>
       {/* Header row */}
       <div className="flex items-center justify-between mb-2">
@@ -176,29 +216,67 @@ function TaskCard({
       <div className="mb-2">
         <p className="text-xs text-stone-500 mb-1">Files ({task.files.length}):</p>
         <div className="flex flex-wrap gap-1">
-          {task.files.slice(0, 3).map((file, i) => (
+          {task.files.slice(0, 2).map((file, i) => (
             <span
               key={i}
-              className="px-1.5 py-0.5 bg-stone-800 rounded text-xs text-stone-400 truncate max-w-[120px]"
+              className="px-1.5 py-0.5 bg-stone-800 rounded text-xs text-stone-400 truncate max-w-[100px]"
               title={file}
             >
               {file}
             </span>
           ))}
-          {task.files.length > 3 && (
+          {task.files.length > 2 && (
             <span className="px-1.5 py-0.5 text-xs text-stone-500">
-              +{task.files.length - 3} more
+              +{task.files.length - 2} more
             </span>
           )}
         </div>
       </div>
 
-      {/* Animated processing indicator */}
-      {task.status === 'processing' && (
-        <div className="mb-2 py-2 px-3 bg-[rgba(59,130,246,0.1)] rounded-lg">
-          <p className="text-sm text-blue-300 font-medium">
-            Processing<AnimatedDots />
-          </p>
+      {/* Foldable Log Console */}
+      {(task.status === 'processing' || logs.length > 0) && (
+        <div className="mb-2">
+          <button
+            onClick={() => setLogsExpanded(!logsExpanded)}
+            className="flex items-center gap-1.5 text-xs text-stone-400 hover:text-stone-300 transition-colors mb-1"
+          >
+            <svg
+              className={`w-3 h-3 transition-transform ${logsExpanded ? 'rotate-90' : ''}`}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
+              <path d="M9 18l6-6-6-6" />
+            </svg>
+            <span className="font-mono">Logs ({logs.length})</span>
+          </button>
+
+          {logsExpanded && (
+            <div
+              ref={logContainerRef}
+              className="bg-stone-950 rounded border border-stone-800 p-2 max-h-32 overflow-y-auto font-mono text-xs"
+            >
+              {logs.length === 0 ? (
+                <p className="text-stone-600 italic">Waiting for logs...</p>
+              ) : (
+                logs.map((log, i) => (
+                  <div
+                    key={i}
+                    className={`py-0.5 ${
+                      log.startsWith('✓') ? 'text-emerald-400' :
+                      log.startsWith('✗') ? 'text-red-400' :
+                      log.includes('- processing') ? 'text-blue-300' :
+                      log.includes('- done') ? 'text-emerald-300' :
+                      'text-stone-400'
+                    }`}
+                  >
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -226,15 +304,25 @@ function TaskCard({
           {task.error}
         </div>
       )}
+
+      {/* Rate limit warning for rate_limited tasks */}
+      {task.status === 'rate_limited' && task.error && (
+        <div className="mt-2 p-2 bg-[rgba(245,158,11,0.1)] rounded text-xs text-amber-300">
+          {task.error}
+        </div>
+      )}
     </div>
   );
 }
 
-export default function ProcessingQueue({ tasks, onCancelTask }: ProcessingQueueProps) {
+export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }: ProcessingQueueProps) {
   // Separate tasks by status
   const processingTasks = tasks.filter(t => t.status === 'processing');
   const queuedTasks = tasks.filter(t => t.status === 'queued');
-  const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed');
+  const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'rate_limited');
+
+  // All active tasks (for grid display)
+  const activeTasks = [...processingTasks, ...queuedTasks];
 
   // Calculate total stats
   const totalFiles = tasks.reduce((acc, t) => acc + t.files.length, 0);
@@ -281,43 +369,47 @@ export default function ProcessingQueue({ tasks, onCancelTask }: ProcessingQueue
         </div>
       </div>
 
-      {/* Task list */}
-      <div className="p-3 max-h-[400px] overflow-y-auto space-y-2">
-        {/* Processing tasks first */}
-        {processingTasks.map(task => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onCancel={onCancelTask ? () => onCancelTask(task.id) : undefined}
-          />
-        ))}
-
-        {/* Queued tasks */}
-        {queuedTasks.map(task => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onCancel={onCancelTask ? () => onCancelTask(task.id) : undefined}
-          />
-        ))}
+      {/* Task grid - 2 columns at 50% width each */}
+      <div className="p-3 max-h-[500px] overflow-y-auto">
+        {/* Active tasks in 2-column grid */}
+        {activeTasks.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {activeTasks.map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onCancel={onCancelTask ? () => onCancelTask(task.id) : undefined}
+                backendTaskId={backendTaskIds?.get(task.id)}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Separator if there are completed tasks */}
-        {completedTasks.length > 0 && (processingTasks.length > 0 || queuedTasks.length > 0) && (
-          <div className="flex items-center gap-2 py-2">
+        {completedTasks.length > 0 && activeTasks.length > 0 && (
+          <div className="flex items-center gap-2 py-3 mt-3">
             <div className="flex-1 h-px bg-stone-700" />
             <span className="text-xs text-stone-500">Completed</span>
             <div className="flex-1 h-px bg-stone-700" />
           </div>
         )}
 
-        {/* Completed/failed tasks */}
-        {completedTasks.slice(0, 5).map(task => (
-          <TaskCard key={task.id} task={task} />
-        ))}
+        {/* Completed/failed tasks in 2-column grid */}
+        {completedTasks.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {completedTasks.slice(0, 6).map(task => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                backendTaskId={backendTaskIds?.get(task.id)}
+              />
+            ))}
+          </div>
+        )}
 
-        {completedTasks.length > 5 && (
-          <p className="text-xs text-stone-500 text-center py-2">
-            +{completedTasks.length - 5} more completed tasks
+        {completedTasks.length > 6 && (
+          <p className="text-xs text-stone-500 text-center py-2 mt-2">
+            +{completedTasks.length - 6} more completed tasks
           </p>
         )}
       </div>

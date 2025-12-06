@@ -1,17 +1,17 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 1.3 - Fixed JSON serialization of LabelCategory objects
-# Changes: Convert LabelCategory dataclass to dict before storing in metadata
-# Previous: Categories now accept {name, description} objects for better AI prompting
+# Version: 1.5 - Re-export RateLimitError for API layer to catch
+# Changes: Import and propagate RateLimitError from gemini_labeler
+# Previous: Added progress callback support for real-time log streaming
 
 import os
 import json
 import logging
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Callable
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
-from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult
+from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult, RateLimitError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -169,7 +169,8 @@ class DataCleaningService:
     def _apply_labels(
         self,
         posts: List[Dict[str, Any]],
-        label_condition: LabelByCondition
+        label_condition: LabelByCondition,
+        progress_callback: Optional[Callable[[str], None]] = None
     ) -> List[Dict[str, Any]]:
         """
         Apply Gemini labeling to posts.
@@ -177,6 +178,7 @@ class DataCleaningService:
         Args:
             posts: List of post dictionaries
             label_condition: Label condition with categories and targets
+            progress_callback: Optional callback(message) for progress updates
 
         Returns:
             Posts with added label fields
@@ -189,12 +191,18 @@ class DataCleaningService:
         mode = label_condition.to_labeling_mode()
         logger.info(f"Starting labeling with mode: {mode.value}")
 
+        # Create a wrapper callback that converts labeler's callback format to string messages
+        def labeler_progress(idx: int, total: int, title: str, status: str):
+            if progress_callback:
+                progress_callback(f"[{idx}/{total}] {title} - {status}")
+
         # Run batch labeling - pass user's prompt directly to Gemini (transparent prompting)
         results: List[LabelingResult] = self.labeler.label_posts_batch(
             posts=posts,
             categories=label_condition.categories,
             mode=mode,
-            user_prompt=label_condition.prompt
+            user_prompt=label_condition.prompt,
+            progress_callback=labeler_progress
         )
 
         # Merge labels back into posts
@@ -216,33 +224,44 @@ class DataCleaningService:
         logger.info(f"Labeled {len(labeled_posts)} posts")
         return labeled_posts
 
-    def clean_and_label(self, config: CleaningConfig) -> Dict[str, Any]:
+    def clean_and_label(
+        self,
+        config: CleaningConfig,
+        progress_callback: Optional[Callable[[str], None]] = None
+    ) -> Dict[str, Any]:
         """
         Execute full cleaning and labeling pipeline.
 
         Args:
             config: Cleaning configuration
+            progress_callback: Optional callback(message) for progress updates
 
         Returns:
             Dictionary with metadata and processed posts
         """
         start_time = datetime.now()
 
+        def log(msg: str):
+            logger.info(msg)
+            if progress_callback:
+                progress_callback(msg)
+
         # Step 1: Load posts from files
-        logger.info(f"Loading posts from {len(config.source_files)} file(s)...")
+        log(f"Loading posts from {len(config.source_files)} file(s)...")
         all_posts, loaded_files = self._load_posts_from_files(config.source_files)
         total_input = len(all_posts)
-        logger.info(f"Total posts loaded: {total_input}")
+        log(f"Total posts loaded: {total_input}")
 
         # Step 2: Apply filter (if enabled)
         if config.filter_by:
-            logger.info(f"Applying filter: {config.filter_by.metric} {config.filter_by.operator} {config.filter_by.value}")
+            log(f"Applying filter: {config.filter_by.metric} {config.filter_by.operator} {config.filter_by.value}")
             all_posts = self._apply_filter(all_posts, config.filter_by)
+            log(f"After filter: {len(all_posts)} posts remaining")
 
         # Step 3: Apply labels (if enabled)
         if config.label_by:
-            logger.info(f"Applying labels with {len(config.label_by.categories)} categories")
-            all_posts = self._apply_labels(all_posts, config.label_by)
+            log(f"Starting labeling with {len(config.label_by.categories)} categories...")
+            all_posts = self._apply_labels(all_posts, config.label_by, progress_callback)
 
         # Step 4: Calculate processing time
         end_time = datetime.now()

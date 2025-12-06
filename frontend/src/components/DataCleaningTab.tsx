@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 2.3 - Removed debug console.log statements
-// Changes: Cleaned up logging after debugging cleaned results viewer
-// Previous: Added persistent task restore on page refresh
+// Version: 2.7 - Added rate_limited status handling for Gemini API quota
+// Changes: Handle rate_limited status in polling, stop task and show warning
+// Previous: Fix SSE log subscription timing issue
 
 'use client';
 
@@ -16,6 +16,8 @@ import {
   getCleanedResults,
   getCleanedResult,
   getCleaningTasks,
+  getAccounts,
+  Account,
   CleaningRequest,
   CleanedResultFile as ApiCleanedResultFile,
   CleaningTaskFull,
@@ -23,6 +25,9 @@ import {
 } from '@/lib/api';
 
 export default function DataCleaningTab() {
+  // Accounts for nickname lookup
+  const [accounts, setAccounts] = useState<Account[]>([]);
+
   // Selected files from the left panel
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
@@ -77,6 +82,19 @@ export default function DataCleaningTab() {
       pollingIntervalsRef.current.forEach((interval) => clearInterval(interval));
       pollingIntervalsRef.current.clear();
     };
+  }, []);
+
+  // Load accounts on mount for nickname display
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const accountsData = await getAccounts();
+        setAccounts(accountsData);
+      } catch (err) {
+        console.error('Failed to load accounts:', err);
+      }
+    };
+    loadAccounts();
   }, []);
 
   // Handle files loaded from scrape results panel
@@ -141,6 +159,20 @@ export default function DataCleaningTab() {
           setTasks(prev => prev.map(t =>
             t.id === frontendTaskId
               ? { ...t, status: 'failed' as const, error: status.error || 'Unknown error' }
+              : t
+          ));
+        } else if (status.status === 'rate_limited') {
+          // Stop polling
+          const interval = pollingIntervalsRef.current.get(frontendTaskId);
+          if (interval) {
+            clearInterval(interval);
+            pollingIntervalsRef.current.delete(frontendTaskId);
+          }
+
+          // Mark as rate_limited (task paused due to API quota)
+          setTasks(prev => prev.map(t =>
+            t.id === frontendTaskId
+              ? { ...t, status: 'rate_limited' as const, error: status.error || 'API rate limit reached' }
               : t
           ));
         }
@@ -240,20 +272,21 @@ export default function DataCleaningTab() {
       frontend_config: frontendConfig,
     };
 
-    // Mark task as processing
-    setTasks(prev => prev.map(t =>
-      t.id === task.id
-        ? { ...t, status: 'processing' as const, startedAt: new Date(), progress: 10 }
-        : t
-    ));
-
     try {
-      // Call the backend API - returns immediately with task_id
+      // Call the backend API FIRST to get task_id before marking as processing
+      // This ensures SSE subscription can happen when status changes to 'processing'
       const response = await startCleaning(request);
 
-      // Store the backend task_id mapping
+      // Store the backend task_id mapping BEFORE changing status
       const backendTaskId = (response as unknown as { task_id: string }).task_id;
       backendTaskIdsRef.current.set(task.id, backendTaskId);
+
+      // NOW mark task as processing (SSE subscription will work since backendTaskId is set)
+      setTasks(prev => prev.map(t =>
+        t.id === task.id
+          ? { ...t, status: 'processing' as const, startedAt: new Date(), progress: 10 }
+          : t
+      ));
 
       // Start polling for task completion
       await pollTaskStatus(task.id, backendTaskId);
@@ -370,6 +403,7 @@ export default function DataCleaningTab() {
             selectedFiles={selectedFiles}
             onSelectionChange={setSelectedFiles}
             onFilesLoaded={handleFilesLoaded}
+            accounts={accounts}
           />
         </div>
 
@@ -389,6 +423,7 @@ export default function DataCleaningTab() {
         <ProcessingQueue
           tasks={tasks}
           onCancelTask={handleCancelTask}
+          backendTaskIds={backendTaskIdsRef.current}
         />
 
         {/* Cleaned Results - Always visible */}

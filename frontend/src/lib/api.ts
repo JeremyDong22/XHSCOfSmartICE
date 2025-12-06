@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.9 - Added persistent task restore API for page refresh recovery
-// Changes: Added CleaningTaskFull type and getCleaningTasks, deleteCleaningTask functions
-// Previous: LabelByRequest.categories now accepts array of {name, description} objects
+// Version: 2.0 - Added SSE streaming for cleaning task logs
+// Changes: Added subscribeToCleaningLogs function for real-time progress updates
+// Previous: Added CleaningTaskFull type and getCleaningTasks, deleteCleaningTask functions
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -478,4 +478,49 @@ export async function deleteCleaningTask(taskId: string): Promise<void> {
     const error = await res.json();
     throw new Error(error.detail || 'Failed to delete cleaning task');
   }
+}
+
+// Cleaning log message from SSE
+export interface CleaningLogMessage {
+  type: 'connected' | 'log' | 'status';
+  message?: string;
+  task_id?: string;
+  status?: string;
+}
+
+// Subscribe to cleaning task logs via SSE
+// Returns a cleanup function to close the connection
+export function subscribeToCleaningLogs(
+  taskId: string,
+  onLog: (message: string) => void,
+  onStatus?: (status: string) => void,
+  onError?: (error: Error) => void
+): () => void {
+  const eventSource = new EventSource(`${API_BASE}/cleaning/logs/${taskId}`);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data: CleaningLogMessage = JSON.parse(event.data);
+
+      if (data.type === 'log' && data.message) {
+        onLog(data.message);
+      } else if (data.type === 'status' && data.status && onStatus) {
+        onStatus(data.status);
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  };
+
+  eventSource.onerror = () => {
+    if (onError) {
+      onError(new Error('SSE connection error'));
+    }
+    eventSource.close();
+  };
+
+  // Return cleanup function
+  return () => {
+    eventSource.close();
+  };
 }

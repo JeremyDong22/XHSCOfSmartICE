@@ -1,19 +1,22 @@
 # Gemini Flash Image and Content Labeling Module
-# Version: 1.6 - Fixed category type recognition with duck typing
+# Version: 1.8 - Added rate limit detection and auto-pause on 429 errors
 # Changes:
-# - _normalize_categories now uses duck typing (hasattr) to recognize any object with name/description
-# - Fixes issue where data_cleaning_service.LabelCategory was not recognized
+# - Detect 429 rate limit errors and raise RateLimitError to stop processing
+# - Send rate limit warning through progress callback before stopping
+# - Return partial results with processed posts count
 #
 # Features:
 # - Supports multiple labeling modes: cover image, all images, title, content, or combinations
 # - Transparent prompting - what you see in UI is what Gemini sees
 # - Structured JSON output with labels, confidence, and reasoning
 # - Error handling and retry logic for API calls
+# - Progress callback for real-time streaming logs
+# - Auto-pause on rate limit (429) errors
 
 import os
 import json
 import logging
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
 import google.generativeai as genai
@@ -28,6 +31,14 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class RateLimitError(Exception):
+    """Custom exception for Gemini API rate limit (429) errors"""
+    def __init__(self, message: str, processed_count: int = 0, retry_after: int = 60):
+        super().__init__(message)
+        self.processed_count = processed_count
+        self.retry_after = retry_after  # Suggested wait time in seconds
 
 
 class LabelingMode(str, Enum):
@@ -369,13 +380,31 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
             )
 
         except Exception as e:
-            logger.error(f"Error labeling post {note_id}: {e}")
+            error_str = str(e)
+            logger.error(f"Error labeling post {note_id}: {error_str}")
+
+            # Check for rate limit (429) errors - re-raise as RateLimitError
+            if "429" in error_str or "rate limit" in error_str.lower() or "quota" in error_str.lower():
+                # Extract retry_after if available (Gemini often suggests wait time)
+                retry_after = 60  # Default 60 seconds
+                if "retry" in error_str.lower():
+                    # Try to extract suggested wait time from error message
+                    import re
+                    match = re.search(r'(\d+(?:\.\d+)?)\s*s', error_str)
+                    if match:
+                        retry_after = int(float(match.group(1))) + 5  # Add buffer
+
+                raise RateLimitError(
+                    f"Rate limit exceeded. Please wait {retry_after}s before retrying.",
+                    retry_after=retry_after
+                )
+
             return LabelingResult(
                 note_id=note_id,
                 labels={},
                 confidence=0.0,
                 reasoning="",
-                error=str(e)
+                error=error_str
             )
 
     def label_posts_batch(
@@ -384,7 +413,8 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
         categories: List[Any],  # Accepts LabelCategory, dict, or str for backward compatibility
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
         user_prompt: str = "Classify this image into one of the categories below.",
-        max_posts: Optional[int] = None
+        max_posts: Optional[int] = None,
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None
     ) -> List[LabelingResult]:
         """
         Label multiple XHS posts in batch.
@@ -395,6 +425,7 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
             mode: Labeling mode (what to analyze)
             user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
             max_posts: Maximum number of posts to process (None = all)
+            progress_callback: Optional callback(index, total, title, status) for progress updates
 
         Returns:
             List of LabelingResult objects
@@ -403,10 +434,37 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
             posts = posts[:max_posts]
 
         results = []
+        total = len(posts)
         for idx, post in enumerate(posts):
-            logger.info(f"Processing post {idx + 1}/{len(posts)}: {post.get('note_id', 'unknown')}")
-            result = self.label_post(post, categories, mode, user_prompt)
-            results.append(result)
+            title = post.get('title', 'Untitled')[:50]  # Truncate long titles
+            note_id = post.get('note_id', 'unknown')
+
+            logger.info(f"Processing post {idx + 1}/{total}: {note_id}")
+
+            # Report progress: starting this post
+            if progress_callback:
+                progress_callback(idx + 1, total, title, "processing")
+
+            try:
+                result = self.label_post(post, categories, mode, user_prompt)
+                results.append(result)
+
+                # Report progress: completed this post
+                if progress_callback:
+                    status = "error" if result.error else "done"
+                    label_info = list(result.labels.values())[0] if result.labels else "no label"
+                    progress_callback(idx + 1, total, title, f"{status}: {label_info}")
+
+            except RateLimitError as e:
+                # Send rate limit warning through progress callback
+                if progress_callback:
+                    progress_callback(idx + 1, total, title, f"⚠️ RATE_LIMIT: {e}")
+
+                logger.warning(f"Rate limit hit after processing {idx} posts. Stopping batch.")
+
+                # Update the exception with the count of successfully processed posts
+                e.processed_count = len(results)
+                raise e
 
         return results
 
