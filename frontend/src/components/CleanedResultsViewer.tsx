@@ -1,6 +1,8 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 1.2 - Updated labelByCondition to support multi-target selection
-// Features: Metadata display, group by label, filter by label value, sort by metrics
+// Version: 1.6 - Added delete functionality and fixed font consistency
+// Changes: Added delete button for cleaning results, unified fonts with dashboard styling
+// - Updated LabeledPost interface to match actual backend structure (labels: { label: string })
+// - Filter dropdown shows categories defined during labeling, not extracted from posts
 
 'use client';
 
@@ -22,6 +24,7 @@ export interface CleaningMetadata {
     textTarget: string | null;
     labelCount: number;
     prompt: string;
+    categories?: string[];  // User-defined categories for filtering
   };
   originalFiles: string[];
   totalPostsInput: number;
@@ -29,14 +32,13 @@ export interface CleaningMetadata {
 }
 
 export interface LabeledPost extends XHSPost {
+  // Labels from backend: { label: "category_name" } - simple structure from Gemini
   labels?: {
-    coverImageLabel?: string;
-    imagesLabel?: string;
-    titleLabel?: string;
-    contentLabel?: string;
-    confidence?: number;
-    reasoning?: string;
+    label?: string;  // Main label assigned by Gemini
   };
+  // Separate fields for confidence and reasoning (at post level, not nested)
+  label_confidence?: number;
+  label_reasoning?: string;
 }
 
 export interface CleanedResultData {
@@ -53,11 +55,12 @@ export interface CleanedResultFile {
 interface CleanedResultsViewerProps {
   files: CleanedResultFile[];
   onFileSelect?: (filename: string) => void;
+  onFileDelete?: (filename: string) => Promise<void>;
   selectedFileData?: CleanedResultData | null;
   loading?: boolean;
 }
 
-type SortField = 'likes' | 'collects' | 'comments';
+type SortField = 'likes';
 type SortOrder = 'asc' | 'desc';
 type ViewMode = 'visual' | 'json';
 
@@ -96,11 +99,8 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
 
-  // Get the primary label to display
-  const primaryLabel = post.labels?.coverImageLabel ||
-    post.labels?.contentLabel ||
-    post.labels?.titleLabel ||
-    post.labels?.imagesLabel;
+  // Get the primary label to display (now using simple structure from backend)
+  const primaryLabel = post.labels?.label;
 
   return (
     <a
@@ -190,16 +190,16 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
         </div>
 
         {/* Confidence badge if available */}
-        {post.labels?.confidence !== undefined && (
+        {post.label_confidence !== undefined && (
           <div className="mt-2 flex items-center gap-2">
             <div className="flex-1 h-1 bg-stone-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${post.labels.confidence * 100}%` }}
+                style={{ width: `${post.label_confidence * 100}%` }}
               />
             </div>
             <span className="text-xs text-stone-500">
-              {Math.round(post.labels.confidence * 100)}%
+              {Math.round(post.label_confidence * 100)}%
             </span>
           </div>
         )}
@@ -296,6 +296,7 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
 export default function CleanedResultsViewer({
   files,
   onFileSelect,
+  onFileDelete,
   selectedFileData,
   loading = false,
 }: CleanedResultsViewerProps) {
@@ -305,6 +306,7 @@ export default function CleanedResultsViewer({
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [groupByLabel, setGroupByLabel] = useState(false);
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string>('all');
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
 
   // Handle file selection
   const handleFileClick = (filename: string) => {
@@ -316,15 +318,37 @@ export default function CleanedResultsViewer({
     }
   };
 
-  // Get unique labels from data
+  // Handle file deletion
+  const handleDeleteClick = async (e: React.MouseEvent, filename: string) => {
+    e.stopPropagation();
+    if (deletingFile) return;
+
+    setDeletingFile(filename);
+    try {
+      await onFileDelete?.(filename);
+      if (selectedFile === filename) {
+        setSelectedFile(null);
+      }
+    } finally {
+      setDeletingFile(null);
+    }
+  };
+
+  // Get categories from metadata (user-defined during labeling)
+  // Falls back to extracting unique labels from posts if metadata doesn't have categories
   const availableLabels = useMemo(() => {
-    if (!selectedFileData?.posts) return [];
+    if (!selectedFileData) return [];
+
+    // Prefer categories from metadata - these are the user-defined categories
+    if (selectedFileData.metadata?.labelByCondition?.categories?.length) {
+      return selectedFileData.metadata.labelByCondition.categories;
+    }
+
+    // Fallback: extract unique labels from posts
+    if (!selectedFileData.posts) return [];
     const labels = new Set<string>();
     selectedFileData.posts.forEach(post => {
-      const label = post.labels?.coverImageLabel ||
-        post.labels?.contentLabel ||
-        post.labels?.titleLabel ||
-        post.labels?.imagesLabel;
+      const label = post.labels?.label;
       if (label) labels.add(label);
     });
     return Array.from(labels).sort();
@@ -336,13 +360,10 @@ export default function CleanedResultsViewer({
 
     let result = [...selectedFileData.posts];
 
-    // Filter by label
+    // Filter by label (using the simple label structure from backend)
     if (selectedLabelFilter !== 'all') {
       result = result.filter(post => {
-        const label = post.labels?.coverImageLabel ||
-          post.labels?.contentLabel ||
-          post.labels?.titleLabel ||
-          post.labels?.imagesLabel;
+        const label = post.labels?.label;
         return label === selectedLabelFilter;
       });
     }
@@ -363,11 +384,7 @@ export default function CleanedResultsViewer({
 
     const groups: Record<string, LabeledPost[]> = {};
     processedPosts.forEach(post => {
-      const label = post.labels?.coverImageLabel ||
-        post.labels?.contentLabel ||
-        post.labels?.titleLabel ||
-        post.labels?.imagesLabel ||
-        'Unlabeled';
+      const label = post.labels?.label || 'Unlabeled';
       if (!groups[label]) groups[label] = [];
       groups[label].push(post);
     });
@@ -480,47 +497,55 @@ export default function CleanedResultsViewer({
                   </select>
                 )}
 
-                {/* Sort controls */}
+                {/* Sort controls - Only likes available (collects/comments require detail scraping) */}
                 <div className="flex items-center gap-2">
-                  <select
-                    value={sortField}
-                    onChange={(e) => setSortField(e.target.value as SortField)}
-                    className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-                  >
-                    <option value="likes">Sort by Likes</option>
-                    <option value="collects">Sort by Collects</option>
-                    <option value="comments">Sort by Comments</option>
-                  </select>
+                  <span className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
+                    Sort by Likes
+                  </span>
 
                   <button
-                    onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                    className="p-1.5 bg-stone-900 border border-stone-700 rounded-lg hover:border-stone-600 transition-colors"
-                    title={sortOrder === 'desc' ? 'Descending' : 'Ascending'}
+                    type="button"
+                    onClick={() => {
+                      const newOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+                      setSortOrder(newOrder);
+                    }}
+                    className={`px-2 py-1.5 bg-stone-900 border rounded-lg transition-all cursor-pointer select-none ${
+                      sortOrder === 'asc'
+                        ? 'border-[rgba(217,119,87,0.5)] text-[#E8A090]'
+                        : 'border-stone-700 text-stone-400 hover:border-stone-600'
+                    }`}
+                    title={sortOrder === 'desc' ? 'Click for Ascending' : 'Click for Descending'}
+                    aria-label={`Sort ${sortOrder === 'desc' ? 'descending' : 'ascending'}, click to toggle`}
                   >
-                    <svg
-                      className={`w-4 h-4 text-stone-400 transition-transform ${
-                        sortOrder === 'asc' ? 'rotate-180' : ''
-                      }`}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M19 9l-7 7-7-7" />
-                    </svg>
+                    <div className="flex items-center gap-1">
+                      <svg
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          sortOrder === 'asc' ? 'rotate-180' : ''
+                        }`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M19 9l-7 7-7-7" />
+                      </svg>
+                      <span className="text-xs font-medium">
+                        {sortOrder === 'desc' ? 'DESC' : 'ASC'}
+                      </span>
+                    </div>
                   </button>
                 </div>
 
-                {/* Group by label toggle */}
+                {/* Group by dropdown */}
                 {availableLabels.length > 0 && (
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={groupByLabel}
-                      onChange={(e) => setGroupByLabel(e.target.checked)}
-                    />
-                    <span className="text-xs text-stone-400">Group by label</span>
-                  </label>
+                  <select
+                    value={groupByLabel ? 'label' : 'none'}
+                    onChange={(e) => setGroupByLabel(e.target.value === 'label')}
+                    className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+                  >
+                    <option value="none">No Grouping</option>
+                    <option value="label">Group by Label</option>
+                  </select>
                 )}
 
                 {/* Results count */}

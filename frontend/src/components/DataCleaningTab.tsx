@@ -1,6 +1,6 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 1.7 - Updated to pass filtered labels array and unified prompt to backend
-// Changes: Filter empty labels before sending, use unifiedPrompt for Gemini instruction
+// Version: 1.8 - Pass categories to CleanedResultsViewer for label filter dropdown
+// Changes: Now passes label_by_condition.categories for the filter to use user-defined categories
 // Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
 
 'use client';
@@ -221,6 +221,7 @@ export default function DataCleaningTab() {
                 textTarget: data.metadata.label_by_condition.text_target,
                 labelCount: data.metadata.label_by_condition.categories?.length || 0,
                 prompt: data.metadata.label_by_condition.prompt,
+                categories: data.metadata.label_by_condition.categories,  // Pass categories for filter dropdown
               }
             : undefined,
           originalFiles: data.metadata.original_files,
