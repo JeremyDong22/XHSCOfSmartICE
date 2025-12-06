@@ -1,6 +1,6 @@
 // Account statistics display component with usage alerts
-// Version: 1.1 - Reorganized to show hourly metrics in main view, today/lifetime in dropdown
-// Changes: Main view shows only this hour stats (scrapes, posts, opens). Dropdown shows today + lifetime side-by-side.
+// Version: 1.2 - Updated alert thresholds for scrapes, posts, and browser opens per hour
+// Changes: Scrapes (10/20), Posts (200/300), Opens (5/10) for yellow/red thresholds
 // Purpose: Display scrape counts, browser opens, and duration with anti-crawling alerts
 
 'use client';
@@ -22,15 +22,15 @@ function formatDuration(seconds: number): string {
 
 // Helper: Get alert color for scrapes this hour
 function getScrapeHourlyAlertColor(count: number): string {
-  if (count > 10) return 'text-red-400 bg-red-900/30';
-  if (count > 5) return 'text-yellow-400 bg-yellow-900/30';
+  if (count > 20) return 'text-red-400 bg-red-900/30';
+  if (count > 10) return 'text-yellow-400 bg-yellow-900/30';
   return 'text-green-400 bg-green-900/30';
 }
 
 // Helper: Get alert color for posts scraped this hour
 function getPostsHourlyAlertColor(count: number): string {
-  if (count > 10) return 'text-red-400 bg-red-900/30';
-  if (count > 5) return 'text-yellow-400 bg-yellow-900/30';
+  if (count > 300) return 'text-red-400 bg-red-900/30';
+  if (count > 200) return 'text-yellow-400 bg-yellow-900/30';
   return 'text-green-400 bg-green-900/30';
 }
 
@@ -77,9 +77,9 @@ export default function AccountStatsDisplay({ stats, loading }: AccountStatsDisp
         <span
           className={`px-1.5 py-0.5 rounded ${getScrapeHourlyAlertColor(stats.this_hour.scrape_count)}`}
           title={`Scrapes this hour: ${stats.this_hour.scrape_count}\n${
-            stats.this_hour.scrape_count > 10 ? 'Warning: High frequency!' :
-            stats.this_hour.scrape_count > 5 ? 'Caution: Moderate frequency' :
-            'Safe: Low frequency'
+            stats.this_hour.scrape_count > 20 ? 'Warning: High frequency (>20/hr)!' :
+            stats.this_hour.scrape_count > 10 ? 'Caution: Moderate frequency (>10/hr)' :
+            'Safe: Low frequency (≤10/hr)'
           }`}
         >
           {stats.this_hour.scrape_count} scrapes
@@ -91,9 +91,9 @@ export default function AccountStatsDisplay({ stats, loading }: AccountStatsDisp
         <span
           className={`px-1.5 py-0.5 rounded ${getPostsHourlyAlertColor(stats.this_hour.posts_scraped)}`}
           title={`Posts scraped this hour: ${stats.this_hour.posts_scraped}\n${
-            stats.this_hour.posts_scraped > 10 ? 'Warning: High volume!' :
-            stats.this_hour.posts_scraped > 5 ? 'Caution: Moderate volume' :
-            'Safe: Low volume'
+            stats.this_hour.posts_scraped > 300 ? 'Warning: High volume (>300/hr)!' :
+            stats.this_hour.posts_scraped > 200 ? 'Caution: Moderate volume (>200/hr)' :
+            'Safe: Low volume (≤200/hr)'
           }`}
         >
           {stats.this_hour.posts_scraped} posts
@@ -105,9 +105,9 @@ export default function AccountStatsDisplay({ stats, loading }: AccountStatsDisp
         <span
           className={`px-1.5 py-0.5 rounded ${getBrowserOpensHourlyAlertColor(stats.this_hour.browser_opens)}`}
           title={`Browser opens this hour: ${stats.this_hour.browser_opens}\n${
-            stats.this_hour.browser_opens > 10 ? 'Warning: High activity!' :
-            stats.this_hour.browser_opens > 5 ? 'Caution: Moderate activity' :
-            'Safe: Low activity'
+            stats.this_hour.browser_opens > 10 ? 'Warning: High activity (>10/hr)!' :
+            stats.this_hour.browser_opens > 5 ? 'Caution: Moderate activity (>5/hr)' :
+            'Safe: Low activity (≤5/hr)'
           }`}
         >
           {stats.this_hour.browser_opens} opens

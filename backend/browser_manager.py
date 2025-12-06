@@ -1,7 +1,7 @@
 # Browser manager for XHS multi-account system
-# Version: 1.3 - Added database tracking for browser sessions and usage stats
-# Changes: Track browser open/close in database, update AccountUsageStats
-# Previous: Added 5s timeout for browser close with force-kill fallback
+# Version: 1.4 - Fixed browser duration tracking bug where 0-second durations were skipped
+# Changes: Changed duration_seconds check from truthiness to is not None
+# Previous: Added database tracking for browser sessions and usage stats
 
 import asyncio
 import subprocess
@@ -423,7 +423,7 @@ class BrowserManager:
                     # End the browser session
                     browser_session = await browser_repo.end_session(session_id, close_reason)
 
-                    if browser_session and browser_session.duration_seconds:
+                    if browser_session and browser_session.duration_seconds is not None:
                         # Update account's total browser duration
                         account_repo = AccountRepository(session)
                         await account_repo.increment_stats(
