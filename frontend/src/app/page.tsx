@@ -1,11 +1,13 @@
 // XHS Multi-Account Scraper Dashboard - Redesigned for parallel scraping
-// Version: 3.0 - New layout: ScrapeForm at top, Accounts with console logs, Results at bottom
-// Framework: Next.js 16 + React 19 + Tailwind CSS
+// Version: 3.1 - Added real-time browser status updates via SSE
+// Changes: Integrated useBrowserEvents hook for instant cross-client synchronization
+// Previous: New layout with ScrapeForm at top, Accounts with console logs, Results at bottom
 
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import { Account, Stats, getAccounts, getStats, openBrowserForLogin, closeAllBrowsers, openAllBrowsers } from '@/lib/api';
+import { useBrowserEvents } from '@/lib/useBrowserEvents';
 import StatsPanel from '@/components/StatsPanel';
 import AccountCardWithConsole, { ActiveTask } from '@/components/AccountCardWithConsole';
 import ScrapeForm from '@/components/ScrapeForm';
@@ -38,9 +40,33 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 5000);
+    // Fallback polling at 30s (SSE handles real-time updates)
+    const interval = setInterval(loadData, 30000);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  // Subscribe to real-time browser events via SSE
+  useBrowserEvents({
+    onBrowserOpened: (accountId) => {
+      console.log(`[SSE] Browser opened for account ${accountId}`);
+      loadData();
+    },
+    onBrowserClosed: (accountId) => {
+      console.log(`[SSE] Browser closed for account ${accountId}`);
+      loadData();
+    },
+    onLoginBrowserCreated: (accountId) => {
+      console.log(`[SSE] New login browser created for account ${accountId}`);
+      loadData();
+    },
+    onAccountDeleted: (accountId) => {
+      console.log(`[SSE] Account ${accountId} deleted`);
+      loadData();
+    },
+    onConnected: () => {
+      console.log('[SSE] Connected to browser events stream');
+    },
+  });
 
   const handleAddAccount = async () => {
     setActionLoading(true);
