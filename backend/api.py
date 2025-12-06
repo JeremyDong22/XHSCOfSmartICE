@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.5 - PostgreSQL database integration for tracking and statistics
-# Changes: Added database lifecycle, new stats endpoints, database sync for accounts
-# Previous: Log files now saved alongside JSON results
+# Version: 1.6 - Real-time browser status updates via SSE
+# Changes: Added BrowserEventManager for broadcasting browser state changes to all clients
+# Previous: PostgreSQL database integration for tracking and statistics
 
 import os
 import json
@@ -19,6 +19,7 @@ from browser_manager import BrowserManager
 from xiaohongshu_scraper import run_scrape_task, OUTPUT_DIR
 from data_models import ScrapeFilter
 from scrape_manager import ScrapeManager
+from browser_event_manager import BrowserEventManager
 
 # Database imports
 from database import init_database, close_database, get_database
