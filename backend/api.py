@@ -81,12 +81,13 @@ class ResultFile(BaseModel):
 account_manager: AccountManager = None
 browser_manager: BrowserManager = None
 scrape_manager: ScrapeManager = None
+browser_event_manager: BrowserEventManager = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global account_manager, browser_manager, scrape_manager
+    global account_manager, browser_manager, scrape_manager, browser_event_manager
 
     # Startup
     print("Starting up XHS Scraper API...")
@@ -102,6 +103,7 @@ async def lifespan(app: FastAPI):
     account_manager = AccountManager()
     browser_manager = BrowserManager(account_manager)
     scrape_manager = ScrapeManager()
+    browser_event_manager = BrowserEventManager()
     await browser_manager.start()
 
     yield
@@ -297,6 +299,9 @@ async def open_browser(account_id: int):
     success = await browser_manager.open_browser(account_id)
     if not success:
         raise HTTPException(status_code=500, detail="Failed to open browser")
+
+    # Broadcast browser opened event to all SSE clients
+    await browser_event_manager.notify_browser_opened(account_id)
 
     return {"success": True}
 
