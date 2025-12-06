@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.7 - Data cleaning and Gemini labeling integration
-# Changes: Added cleaning endpoints for filtering and labeling scraped results with Gemini
-# Previous: Real-time browser status updates via SSE
+# Version: 1.8 - Load .env for Gemini API key
+# Changes: Added dotenv loading for production API key
+# Previous: Data cleaning and Gemini labeling integration
 
 import os
 import json
@@ -10,7 +10,11 @@ import asyncio
 import logging
 from typing import List, Optional, Dict, Any, Literal
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+
+# Load environment variables from .env file
+load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
