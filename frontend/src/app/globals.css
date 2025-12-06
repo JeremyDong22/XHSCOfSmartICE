@@ -1,5 +1,5 @@
 /* XHS Dashboard Global Styles
-   Version: 2.4 - Fixed range slider track visibility */
+   Version: 2.5 - Added scrollbar-hide utility class */
 
 @import "tailwindcss";
 
@@ -222,4 +222,14 @@ select {
 
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Hide scrollbar but keep scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
 }

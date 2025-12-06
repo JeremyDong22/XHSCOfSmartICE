@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 2.9 - Added real cancel and delete task functionality
-// Changes: handleCancelTask now calls backend API to cancel running tasks
-// Previous: UI localization to Chinese
+// Version: 3.0 - Sync left panel height with right WashingMachine height
+// Changes: Left panel height matches right panel, scrolls when content overflows
+// Previous: handleCancelTask now calls backend API to cancel running tasks
 
 'use client';
 
@@ -48,6 +48,10 @@ export default function DataCleaningTab() {
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const backendTaskIdsRef = useRef<Map<string, string>>(new Map());
 
+  // Refs for syncing panel heights - right panel determines the max height
+  const rightPanelRef = useRef<HTMLDivElement>(null);
+  const [rightPanelHeight, setRightPanelHeight] = useState<number | null>(null);
+
   // Helper: Convert backend task to frontend CleaningTask format
   const convertBackendTask = useCallback((backendTask: CleaningTaskFull): CleaningTask => {
     return {
@@ -82,6 +86,25 @@ export default function DataCleaningTab() {
       pollingIntervalsRef.current.forEach((interval) => clearInterval(interval));
       pollingIntervalsRef.current.clear();
     };
+  }, []);
+
+  // Sync left panel height with right panel using ResizeObserver
+  useEffect(() => {
+    const rightPanel = rightPanelRef.current;
+    if (!rightPanel) return;
+
+    const updateHeight = () => {
+      setRightPanelHeight(rightPanel.offsetHeight);
+    };
+
+    // Initial measurement
+    updateHeight();
+
+    // Observe size changes
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(rightPanel);
+
+    return () => resizeObserver.disconnect();
   }, []);
 
   // Load accounts on mount for nickname display
@@ -417,10 +440,13 @@ export default function DataCleaningTab() {
         </div>
       </div>
 
-      {/* Main two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column - Scrape Results Panel */}
-        <div className="min-h-[600px]">
+      {/* Main two-column layout - right column determines height for left column */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        {/* Left Column - Scrape Results Panel (height synced with right column, scrolls if content overflows) */}
+        <div
+          className="overflow-hidden"
+          style={rightPanelHeight ? { height: `${rightPanelHeight}px` } : { height: 'auto' }}
+        >
           <ScrapeResultsPanel
             selectedFiles={selectedFiles}
             onSelectionChange={setSelectedFiles}
@@ -429,8 +455,8 @@ export default function DataCleaningTab() {
           />
         </div>
 
-        {/* Right Column - Washing Machine */}
-        <div>
+        {/* Right Column - Washing Machine (natural height determines max height for left column) */}
+        <div ref={rightPanelRef}>
           <WashingMachine
             selectedFiles={selectedFiles}
             onTaskSubmit={handleTaskSubmit}

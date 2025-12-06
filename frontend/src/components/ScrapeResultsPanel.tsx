@@ -1,7 +1,7 @@
 // Scrape Results Panel - Left side of Data Laundry tab
-// Version: 1.7 - UI localization to Chinese
-// Changes: All labels, buttons, and messages translated to Chinese
-// Previous: Accept accounts prop and show nicknames instead of just account IDs
+// Version: 1.8 - Hide scrollbar for cleaner look
+// Changes: Added scrollbar-hide class to file list
+// Previous: UI localization to Chinese
 
 'use client';
 
@@ -257,8 +257,8 @@ export default function ScrapeResultsPanel({
         </div>
       </div>
 
-      {/* File List */}
-      <div className="flex-1 overflow-y-auto p-2">
+      {/* File List - hide scrollbar but keep scrolling */}
+      <div className="flex-1 overflow-y-auto p-2 scrollbar-hide">
         {loading ? (
           <div className="space-y-1">
             {[...Array(5)].map((_, i) => (
