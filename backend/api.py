@@ -313,6 +313,9 @@ async def open_browser_for_login():
     if account_id < 0:
         raise HTTPException(status_code=500, detail="Failed to create new account browser")
 
+    # Broadcast new login browser created event to all SSE clients
+    await browser_event_manager.notify_login_browser_created(account_id)
+
     return {"success": True, "account_id": account_id}
 
 
@@ -323,6 +326,11 @@ async def close_browser(account_id: int):
         return {"success": True, "message": "Browser not open"}
 
     success = await browser_manager.close_browser(account_id)
+
+    # Broadcast browser closed event to all SSE clients
+    if success:
+        await browser_event_manager.notify_browser_closed(account_id)
+
     return {"success": success}
 
 
