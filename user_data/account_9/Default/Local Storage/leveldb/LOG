@@ -1,3 +1,15 @@
-2025/12/06-01:30:41.000 15ec3ca Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
-2025/12/06-01:30:41.005 15ec3ca Recovering log #110
-2025/12/06-01:30:41.006 15ec3ca Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/000110.log 
+2025/12/06-15:35:58.255 175d0f8 Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/06-15:35:58.261 175d0f8 Recovering log #110
+2025/12/06-15:35:58.266 175d0f8 Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/000110.log 
+2025/12/06-15:36:58.277 175d0fb Level-0 table #114: started
+2025/12/06-15:36:58.279 175d0fb Level-0 table #114: 15061 bytes OK
+2025/12/06-15:36:58.282 175d0fb Delete type=0 #110
+2025/12/06-15:36:58.283 175d0fb Compacting 4@0 + 1@1 files
+2025/12/06-15:36:58.285 175d0fb Generated table #115@0: 47 keys, 27450 bytes
+2025/12/06-15:36:58.285 175d0fb Compacted 4@0 + 1@1 files => 27450 bytes
+2025/12/06-15:36:58.286 175d0fb compacted to: files[ 0 1 1 0 0 0 0 ]
+2025/12/06-15:36:58.286 175d0fb Delete type=2 #103
+2025/12/06-15:36:58.286 175d0fb Delete type=2 #114
+2025/12/06-15:36:58.286 175d0fb Delete type=2 #105
+2025/12/06-15:36:58.286 175d0fb Delete type=2 #111
+2025/12/06-15:36:58.286 175d0fb Delete type=2 #108

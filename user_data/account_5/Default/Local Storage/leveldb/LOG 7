@@ -1,0 +1,4 @@
+2025/12/05-23:09:16.078 15b4cf9 Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_5/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/05-23:09:16.081 15b4cf9 Recovering log #81
+2025/12/05-23:09:16.082 15b4cf9 (ignoring error) /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_5/Default/Local Storage/leveldb/000081.log: dropping 17740 bytes; Corruption: checksum mismatch
+2025/12/05-23:09:16.082 15b4cf9 Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_5/Default/Local Storage/leveldb/000081.log 

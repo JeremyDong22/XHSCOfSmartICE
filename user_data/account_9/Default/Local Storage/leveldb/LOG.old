@@ -1,6 +1,3 @@
-2025/12/05-23:14:05.498 15b7c53 Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
-2025/12/05-23:14:05.504 15b7c53 Recovering log #107
-2025/12/05-23:14:05.505 15b7c53 Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/000107.log 
-2025/12/05-23:55:06.970 15b7c57 Level-0 table #111: started
-2025/12/05-23:55:06.973 15b7c57 Level-0 table #111: 15361 bytes OK
-2025/12/05-23:55:06.978 15b7c57 Delete type=0 #107
+2025/12/06-15:07:12.517 174e098 Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/06-15:07:12.520 174e098 Recovering log #110
+2025/12/06-15:07:12.521 174e098 Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_9/Default/Local Storage/leveldb/000110.log 

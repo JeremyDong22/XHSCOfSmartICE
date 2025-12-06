@@ -1,0 +1,5 @@
+2025/12/05-23:09:08.796 15b4adf Reusing MANIFEST /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/MANIFEST-000001
+2025/12/05-23:09:08.798 15b4adf Recovering log #100
+2025/12/05-23:09:08.799 15b4adf (ignoring error) /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log: dropping 12427 bytes; Corruption: checksum mismatch
+2025/12/05-23:09:08.799 15b4adf (ignoring error) /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log: dropping 285 bytes; Corruption: missing start of fragmented record(2)
+2025/12/05-23:09:08.799 15b4adf Reusing old log /Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/user_data/account_3/Default/Local Storage/leveldb/000100.log 
