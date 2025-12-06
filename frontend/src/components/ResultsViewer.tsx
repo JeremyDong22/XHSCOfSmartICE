@@ -1,6 +1,7 @@
 // Results viewer component for displaying scrape output files
-// Version: 3.2 - Fixed date sorting for YYYYMMDD_HHMMSS filename format
-// Changes: Updated regex to parse date from filename format keyword_accountX_YYYYMMDD_HHMMSS.json
+// Version: 3.3 - UI localization to Chinese
+// Changes: All labels, placeholders, buttons, and messages translated to Chinese
+// Previous: Fixed date sorting for YYYYMMDD_HHMMSS filename format
 
 'use client';
 
@@ -120,7 +121,7 @@ function VisualPreview({ data }: { data: ScrapeResultData }) {
   if (!data.posts || data.posts.length === 0) {
     return (
       <div className="text-center py-8 text-stone-500 text-sm">
-        No posts in this result file.
+        该结果文件中没有数据。
       </div>
     );
   }
@@ -204,7 +205,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
       setFileContent(content);
     } catch (error) {
       console.error('Failed to load file:', error);
-      alert('Failed to load file content');
+      alert('加载文件内容失败');
     } finally {
       setContentLoading(false);
     }
@@ -213,7 +214,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
   const handleDelete = async (filename: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
-    const confirmed = confirm(`Are you sure you want to delete ${filename}?\n\nThis action cannot be undone.`);
+    const confirmed = confirm(`确定要删除 ${filename} 吗？\n\n此操作无法撤销。`);
     if (!confirmed) return;
 
     try {
@@ -227,7 +228,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
       await loadFiles();
     } catch (error) {
       console.error('Failed to delete file:', error);
-      alert(error instanceof Error ? error.message : 'Failed to delete file');
+      alert(error instanceof Error ? error.message : '删除文件失败');
     }
   };
 
@@ -241,7 +242,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
     return (
       <div className="bg-stone-800 rounded-xl p-6 border border-stone-700">
         <h2 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-4">
-          Scrape Results
+          采集结果
         </h2>
         <div className="animate-pulse space-y-3">
           {[...Array(3)].map((_, i) => (
@@ -255,12 +256,12 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
   return (
     <div className="bg-stone-800 rounded-xl p-6 border border-stone-700">
       <h2 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-4">
-        Scrape Results
+        采集结果
       </h2>
 
       {files.length === 0 ? (
         <div className="text-center py-8 text-stone-500 text-sm">
-          <p>No results yet. Start a scraping task to see results here.</p>
+          <p>暂无结果。启动采集任务后，结果将显示在此处。</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -290,7 +291,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
                 <button
                   onClick={(e) => handleDelete(file.filename, e)}
                   className="px-3 text-red-300 hover:bg-[rgba(239,68,68,0.2)] transition-colors rounded-r-lg"
-                  title="Delete file"
+                  title="删除文件"
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
@@ -313,7 +314,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
                   {/* View mode toggle header */}
                   <div className="px-4 py-2 border-b border-stone-800 flex items-center justify-between">
                     <span className="font-mono text-xs text-stone-500 uppercase tracking-widest">
-                      {viewMode === 'visual' ? 'Visual Preview' : 'JSON Preview'}
+                      {viewMode === 'visual' ? '可视化预览' : 'JSON 预览'}
                     </span>
                     <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-0.5">
                       <button
@@ -331,7 +332,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
                             <rect x="3" y="14" width="7" height="7" rx="1" />
                             <rect x="14" y="14" width="7" height="7" rx="1" />
                           </svg>
-                          Cards
+                          卡片
                         </span>
                       </button>
                       <button
@@ -367,7 +368,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
                         </pre>
                       )
                     ) : (
-                      <p className="text-stone-600 font-mono text-sm">No content</p>
+                      <p className="text-stone-600 font-mono text-sm">无内容</p>
                     )}
                   </div>
                 </div>

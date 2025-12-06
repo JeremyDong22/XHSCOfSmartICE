@@ -1,7 +1,7 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.5 - Increased max posts limit to 2000
-// Changes: Max posts slider now allows up to 2000 posts per account per session
-// Previous: Step changed from 5 to 1 for smooth sliding, min changed to 1
+// Version: 3.7 - UI localization to Chinese
+// Changes: All labels, placeholders, buttons, and alerts translated to Chinese
+// Previous: Account selector shows nickname (fallback to Account ID) with ID in parentheses
 
 'use client';
 
@@ -33,11 +33,11 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
     e.preventDefault();
 
     if (!accountId) {
-      alert('Please select an account');
+      alert('请选择账号');
       return;
     }
     if (!keyword.trim()) {
-      alert('Please enter a keyword');
+      alert('请输入关键词');
       return;
     }
 
@@ -70,7 +70,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
       setMinLikesInput('');
     } catch (error) {
       console.error('Scrape failed:', error);
-      alert(error instanceof Error ? error.message : 'Scrape failed');
+      alert(error instanceof Error ? error.message : '采集失败');
     } finally {
       setLoading(false);
     }
@@ -79,24 +79,24 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
   return (
     <div className="bg-stone-800 rounded-xl p-6 border border-stone-700">
       <h2 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-4">
-        Start Scraping Task
+        启动采集任务
       </h2>
 
       {accounts.filter(a => a.browser_open).length === 0 ? (
         <div className="text-center py-8 text-stone-500 text-sm">
-          <p>No browsers open. Open a browser first to start scraping.</p>
+          <p>暂无打开的浏览器，请先打开浏览器再开始采集。</p>
         </div>
       ) : availableAccounts.length === 0 ? (
         <div className="text-center py-8 text-stone-500 text-sm">
-          <p>All open browsers are currently running tasks.</p>
-          <p className="mt-2 text-xs">Wait for a task to complete or open another browser.</p>
+          <p>所有浏览器都在执行任务中。</p>
+          <p className="mt-2 text-xs">请等待任务完成或打开新的浏览器。</p>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Account selector */}
           <div>
             <label htmlFor="account-select" className="block text-sm font-medium text-stone-200 mb-1.5">
-              Select Account
+              选择账号
             </label>
             <select
               id="account-select"
@@ -104,10 +104,10 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
               onChange={(e) => setAccountId(Number(e.target.value))}
               className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all"
             >
-              <option value={0}>-- Select Account --</option>
+              <option value={0}>-- 选择账号 --</option>
               {availableAccounts.map((acc) => (
                 <option key={acc.account_id} value={acc.account_id}>
-                  Account {acc.account_id} {acc.nickname ? `(${acc.nickname})` : ''}
+                  {acc.nickname || `账号 ${acc.account_id}`} (ID: {acc.account_id})
                 </option>
               ))}
             </select>
@@ -116,14 +116,14 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
           {/* Keyword input */}
           <div>
             <label htmlFor="keyword-input" className="block text-sm font-medium text-stone-200 mb-1.5">
-              Search Keyword
+              搜索关键词
             </label>
             <input
               id="keyword-input"
               type="text"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="e.g., 咖啡, 美食, 旅行"
+              placeholder="例如：咖啡、美食、旅行"
               className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm placeholder-stone-600 focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all"
             />
           </div>
@@ -131,7 +131,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
           {/* Max posts slider */}
           <div>
             <label htmlFor="max-posts-slider" className="block text-sm font-medium text-stone-200 mb-1.5">
-              Max Posts: <span className="font-mono text-[#D97757]">{maxPosts}</span>
+              最大采集数量: <span className="font-mono text-[#D97757]">{maxPosts}</span>
             </label>
             <input
               id="max-posts-slider"
@@ -151,7 +151,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
           {/* Min likes filter */}
           <div>
             <label htmlFor="min-likes-input" className="block text-sm font-medium text-stone-200 mb-1.5">
-              Min Likes Filter
+              最低点赞数过滤
             </label>
             <input
               id="min-likes-input"
@@ -164,11 +164,11 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
                 const value = e.target.value.replace(/[^0-9]/g, '');
                 setMinLikesInput(value);
               }}
-              placeholder="0 = no filter"
+              placeholder="0 = 不过滤"
               className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm placeholder-stone-600 focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all"
             />
             <p className="mt-1.5 text-xs text-stone-500 font-mono">
-              Note: Collects and comments filters not available in search-only mode
+              注：搜索模式下不支持收藏数和评论数过滤
             </p>
           </div>
 
@@ -182,7 +182,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
               className="w-4 h-4 rounded border-stone-700 bg-stone-900 text-[#D97757] focus:ring-[#D97757] focus:ring-offset-stone-900"
             />
             <label htmlFor="skip-videos-checkbox" className="text-sm font-medium text-stone-200 cursor-pointer">
-              Skip videos (images only)
+              跳过视频（仅采集图文）
             </label>
           </div>
 
@@ -192,14 +192,14 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
             disabled={loading}
             className="w-full py-3 bg-[#D97757] text-white font-medium rounded-lg transition-all hover:bg-[#E8886A] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Starting...' : 'Start Scraping'}
+            {loading ? '启动中...' : '开始采集'}
           </button>
 
           {/* Active tasks info */}
           {activeTasks.size > 0 && (
             <div className="pt-4 border-t border-stone-700">
               <p className="text-xs text-stone-500 font-mono">
-                {activeTasks.size} task{activeTasks.size > 1 ? 's' : ''} running. See console logs below each account.
+                {activeTasks.size} 个任务运行中。查看各账号下方的控制台日志。
               </p>
             </div>
           )}

@@ -15,10 +15,10 @@ export default function DataLaundryPage() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-stone-50 tracking-tight">
-                XHS Multi-Account Scraper
+                小红书多账号采集器
               </h1>
               <p className="text-sm text-stone-500 mt-1 font-mono">
-                Manage accounts and scrape Xiaohongshu posts in parallel
+                管理多账号并行采集小红书笔记
               </p>
             </div>
             <TabNavigation />
@@ -32,7 +32,7 @@ export default function DataLaundryPage() {
 
       {/* Footer */}
       <footer className="mt-16 py-6 text-center text-stone-600 text-sm font-mono">
-        <p>XHS Multi-Account Scraper</p>
+        <p>小红书多账号采集器</p>
       </footer>
     </div>
   );

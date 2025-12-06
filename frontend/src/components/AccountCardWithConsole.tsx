@@ -1,12 +1,12 @@
 // Account card component with embedded console log for active scrape tasks
-// Version: 1.1 - Added account stats display with usage alerts
-// Changes: Integrated AccountStatsDisplay component with auto-refresh every 30s
-// Previous: Shows account info with console log underneath when task is running
+// Version: 1.2 - Added inline nickname editing with pen icon
+// Changes: Added edit mode for account alias with pen icon, saves to backend permanently
+// Previous: Integrated AccountStatsDisplay component with auto-refresh every 30s
 
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Account, AccountStats, openBrowser, closeBrowser, deleteAccount, cancelScrape, getAccountStats } from '@/lib/api';
+import { Account, AccountStats, openBrowser, closeBrowser, deleteAccount, cancelScrape, getAccountStats, updateAccount } from '@/lib/api';
 import AccountStatsDisplay from './AccountStatsDisplay';
 
 // Task info passed from parent
@@ -46,6 +46,12 @@ export default function AccountCardWithConsole({
 }: AccountCardWithConsoleProps) {
   const [loading, setLoading] = useState(false);
 
+  // Nickname editing state
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(account.nickname || '');
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+
   // Console log state
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [taskStatus, setTaskStatus] = useState<string>('running');
@@ -78,6 +84,57 @@ export default function AccountCardWithConsole({
 
     return () => clearInterval(interval);
   }, [account.account_id]);
+
+  // Focus input when entering edit mode
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  // Update editedName when account.nickname changes externally
+  useEffect(() => {
+    setEditedName(account.nickname || '');
+  }, [account.nickname]);
+
+  const handleStartEditing = () => {
+    setEditedName(account.nickname || '');
+    setIsEditingName(true);
+  };
+
+  const handleCancelEditing = () => {
+    setEditedName(account.nickname || '');
+    setIsEditingName(false);
+  };
+
+  const handleSaveName = async () => {
+    const trimmedName = editedName.trim();
+    if (trimmedName === account.nickname) {
+      setIsEditingName(false);
+      return;
+    }
+
+    setSavingName(true);
+    try {
+      await updateAccount(account.account_id, { nickname: trimmedName });
+      setIsEditingName(false);
+      onRefresh();
+    } catch (error) {
+      console.error('Failed to save nickname:', error);
+      alert('保存昵称失败');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      handleSaveName();
+    } else if (e.key === 'Escape') {
+      handleCancelEditing();
+    }
+  };
 
   // SSE connection for logs
   useEffect(() => {
@@ -135,7 +192,7 @@ export default function AccountCardWithConsole({
       onRefresh();
     } catch (error) {
       console.error('Failed to open browser:', error);
-      alert('Failed to open browser');
+      alert('打开浏览器失败');
     } finally {
       setLoading(false);
     }
@@ -148,14 +205,14 @@ export default function AccountCardWithConsole({
       onRefresh();
     } catch (error) {
       console.error('Failed to close browser:', error);
-      alert('Failed to close browser');
+      alert('关闭浏览器失败');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete Account ${account.account_id}? This cannot be undone.`)) return;
+    if (!confirm(`确定删除账号 ${account.account_id}？此操作无法撤销。`)) return;
 
     setLoading(true);
     try {
@@ -163,7 +220,7 @@ export default function AccountCardWithConsole({
       onRefresh();
     } catch (error) {
       console.error('Failed to delete account:', error);
-      alert('Failed to delete account');
+      alert('删除账号失败');
     } finally {
       setLoading(false);
     }
@@ -211,9 +268,42 @@ export default function AccountCardWithConsole({
               </span>
             </div>
             <div>
-              <div className="font-medium text-stone-50">
-                {account.nickname || `Account ${account.account_id}`}
-              </div>
+              {isEditingName ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={nameInputRef}
+                    type="text"
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={handleNameKeyDown}
+                    onBlur={handleSaveName}
+                    disabled={savingName}
+                    placeholder={`Account ${account.account_id}`}
+                    className="bg-stone-700 border border-stone-500 rounded px-2 py-0.5 text-sm text-stone-50 font-medium focus:outline-none focus:border-[#D97757] w-32"
+                  />
+                  {savingName && (
+                    <svg className="animate-spin h-4 w-4 text-stone-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 group">
+                  <span className="font-medium text-stone-50">
+                    {account.nickname || `Account ${account.account_id}`}
+                  </span>
+                  <button
+                    onClick={handleStartEditing}
+                    className="p-0.5 rounded opacity-0 group-hover:opacity-100 hover:bg-stone-700 transition-all"
+                    title="编辑昵称"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-stone-400 hover:text-stone-200" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
               <div className="font-mono text-xs text-stone-500">
                 ID: {account.account_id}
               </div>
@@ -224,16 +314,16 @@ export default function AccountCardWithConsole({
           <div className="flex items-center gap-2">
             {activeTask && (
               <span className="font-mono text-xs px-2 py-1 rounded bg-[rgba(217,119,87,0.15)] text-[#E8A090] border border-[rgba(217,119,87,0.25)]">
-                SCRAPING
+                采集中
               </span>
             )}
             {account.browser_open ? (
               <span className="font-mono text-xs px-2 py-1 rounded bg-[rgba(16,185,129,0.15)] text-emerald-300 border border-[rgba(16,185,129,0.25)]">
-                ACTIVE
+                在线
               </span>
             ) : (
               <span className="font-mono text-xs px-2 py-1 rounded bg-[rgba(120,113,108,0.15)] text-stone-400 border border-[rgba(120,113,108,0.25)]">
-                OFFLINE
+                离线
               </span>
             )}
           </div>
@@ -244,14 +334,14 @@ export default function AccountCardWithConsole({
           <div className="mb-4 p-3 bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.2)] rounded-lg">
             <div className="flex items-center justify-between">
               <div>
-                <span className="text-xs text-stone-500 font-mono uppercase">Scraping:</span>
+                <span className="text-xs text-stone-500 font-mono uppercase">采集关键词:</span>
                 <span className="ml-2 text-sm text-[#E8A090] font-medium">{activeTask.keyword}</span>
               </div>
               <button
                 onClick={handleStopTask}
                 className="px-3 py-1.5 bg-[rgba(239,68,68,0.2)] text-red-300 border border-[rgba(239,68,68,0.3)] text-xs font-medium rounded transition-all hover:bg-[rgba(239,68,68,0.3)]"
               >
-                Stop
+                停止
               </button>
             </div>
           </div>
@@ -272,7 +362,7 @@ export default function AccountCardWithConsole({
               disabled={loading || !!activeTask}
               className="flex-1 px-4 py-2 bg-stone-700 text-stone-200 border border-stone-600 rounded-lg text-sm font-medium transition-all hover:bg-stone-600 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Close Browser
+              关闭浏览器
             </button>
           ) : (
             <button
@@ -280,14 +370,14 @@ export default function AccountCardWithConsole({
               disabled={loading}
               className="flex-1 px-4 py-2 bg-[#D97757] text-white rounded-lg text-sm font-medium transition-all hover:bg-[#E8886A] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Open Browser
+              打开浏览器
             </button>
           )}
           <button
             onClick={handleDelete}
             disabled={loading || !!activeTask}
             className="px-3 py-2 bg-[rgba(239,68,68,0.2)] text-red-300 border border-[rgba(239,68,68,0.3)] rounded-lg transition-all hover:bg-[rgba(239,68,68,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Delete account"
+            title="删除账号"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -311,7 +401,7 @@ export default function AccountCardWithConsole({
           {/* Console Header */}
           <div className="px-4 py-2 border-b border-stone-700 flex items-center justify-between bg-black/30">
             <span className="font-mono text-xs text-stone-500 uppercase tracking-widest">
-              Console
+              控制台
             </span>
             <span className={`font-mono text-xs px-2 py-0.5 rounded ${
               taskStatus === 'running'
@@ -333,7 +423,7 @@ export default function AccountCardWithConsole({
             role="log"
           >
             {logs.length === 0 ? (
-              <div className="text-stone-600">Waiting for logs...</div>
+              <div className="text-stone-600">等待日志...</div>
             ) : (
               logs.map((log, index) => (
                 <div key={index} className="flex gap-2">

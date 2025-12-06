@@ -1,12 +1,12 @@
 // Scrape Results Panel - Left side of Data Laundry tab
-// Version: 1.5 - Fixed date parsing regex and applied font-mono to metadata
-// Changes: Regex now handles YYYYMMDD_HHMMSS format, metadata uses font-mono
-// Previous: Applied consistent font-mono styling to headers and counts
+// Version: 1.7 - UI localization to Chinese
+// Changes: All labels, buttons, and messages translated to Chinese
+// Previous: Accept accounts prop and show nicknames instead of just account IDs
 
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ResultFile, getScrapeResults, getScrapeResult, ScrapeResultData } from '@/lib/api';
+import { ResultFile, getScrapeResults, getScrapeResult, ScrapeResultData, Account } from '@/lib/api';
 
 // Extended result file with loaded metadata for filtering
 export interface EnrichedResultFile extends ResultFile {
@@ -20,6 +20,7 @@ interface ScrapeResultsPanelProps {
   selectedFiles: string[];
   onSelectionChange: (files: string[]) => void;
   onFilesLoaded?: (files: EnrichedResultFile[]) => void;
+  accounts?: Account[];
 }
 
 type SortOrder = 'newest' | 'oldest';
@@ -28,6 +29,7 @@ export default function ScrapeResultsPanel({
   selectedFiles,
   onSelectionChange,
   onFilesLoaded,
+  accounts = [],
 }: ScrapeResultsPanelProps) {
   const [files, setFiles] = useState<EnrichedResultFile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +37,12 @@ export default function ScrapeResultsPanel({
   const [accountFilter, setAccountFilter] = useState<number | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [loadingMetadata, setLoadingMetadata] = useState<Set<string>>(new Set());
+
+  // Helper to get account display name (nickname or "Account X")
+  const getAccountDisplayName = (accountId: number) => {
+    const account = accounts.find(a => a.account_id === accountId);
+    return account?.nickname || `Account ${accountId}`;
+  };
 
   // Load file list and metadata on mount
   useEffect(() => {
@@ -175,10 +183,10 @@ export default function ScrapeResultsPanel({
             <span className="text-white font-bold text-sm">1</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Select from Scrape Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">选择采集结果</h3>
           </div>
           <span className="text-xs font-mono text-stone-500">
-            {selectedFiles.length} / {filteredFiles.length} selected
+            已选 {selectedFiles.length} / {filteredFiles.length}
           </span>
         </div>
 
@@ -190,7 +198,7 @@ export default function ScrapeResultsPanel({
               type="text"
               value={keywordFilter}
               onChange={(e) => setKeywordFilter(e.target.value)}
-              placeholder="Filter by keyword..."
+              placeholder="按关键词过滤..."
               className="w-full px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-sm text-stone-200 placeholder:text-stone-500 focus:border-[#D97757] focus:ring-1 focus:ring-[rgba(217,119,87,0.3)]"
             />
             {keywordFilter && (
@@ -213,9 +221,9 @@ export default function ScrapeResultsPanel({
               onChange={(e) => setAccountFilter(e.target.value === 'all' ? 'all' : parseInt(e.target.value))}
               className="flex-1 px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-sm text-stone-200"
             >
-              <option value="all">All Accounts</option>
+              <option value="all">全部账号</option>
               {uniqueAccounts.map(id => (
-                <option key={id} value={id}>Account {id}</option>
+                <option key={id} value={id}>{getAccountDisplayName(id)}</option>
               ))}
             </select>
 
@@ -225,8 +233,8 @@ export default function ScrapeResultsPanel({
               onChange={(e) => setSortOrder(e.target.value as SortOrder)}
               className="px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-sm text-stone-200"
             >
-              <option value="newest">Date ↓</option>
-              <option value="oldest">Date ↑</option>
+              <option value="newest">日期 ↓</option>
+              <option value="oldest">日期 ↑</option>
             </select>
           </div>
         </div>
@@ -237,14 +245,14 @@ export default function ScrapeResultsPanel({
             onClick={selectAll}
             className="px-3 py-1.5 text-xs font-medium text-emerald-300 bg-[rgba(16,185,129,0.15)] border border-[rgba(16,185,129,0.25)] rounded-md hover:bg-[rgba(16,185,129,0.25)] transition-colors"
           >
-            Select All
+            全选
           </button>
           <button
             onClick={deselectAll}
             disabled={selectedFiles.length === 0}
             className="px-3 py-1.5 text-xs font-medium text-stone-400 bg-stone-900 border border-stone-700 rounded-md hover:bg-stone-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            Clear
+            清除
           </button>
         </div>
       </div>
@@ -260,8 +268,8 @@ export default function ScrapeResultsPanel({
         ) : filteredFiles.length === 0 ? (
           <div className="text-center py-8 text-stone-500 text-sm">
             {files.length === 0
-              ? 'No scrape results yet. Run a scrape task first.'
-              : 'No files match your filters.'}
+              ? '暂无采集结果。请先运行采集任务。'
+              : '没有符合筛选条件的文件。'}
           </div>
         ) : (
           <div className="space-y-1">
@@ -296,7 +304,7 @@ export default function ScrapeResultsPanel({
                   {/* Metadata Row */}
                   <div className="flex items-center gap-3 mt-1 text-xs font-mono text-stone-500">
                     {file.accountId && (
-                      <span>Account {file.accountId}</span>
+                      <span>{getAccountDisplayName(file.accountId)}</span>
                     )}
                     <span>{formatFileSize(file.size)}</span>
                     <span>{formatDate(file.scrapedAt)}</span>

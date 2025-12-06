@@ -37,8 +37,8 @@ const LaundryIcon = () => (
 );
 
 const tabs: Tab[] = [
-  { id: 'dashboard', label: 'Dashboard', icon: <DashboardIcon />, href: '/' },
-  { id: 'data-laundry', label: 'Data Laundry', icon: <LaundryIcon />, href: '/data-laundry' },
+  { id: 'dashboard', label: '控制面板', icon: <DashboardIcon />, href: '/' },
+  { id: 'data-laundry', label: '数据清洗', icon: <LaundryIcon />, href: '/data-laundry' },
 ];
 
 export default function TabNavigation() {

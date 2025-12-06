@@ -73,11 +73,11 @@ export default function Dashboard() {
     setActionLoading(true);
     try {
       const accountId = await openBrowserForLogin();
-      alert(`New account ${accountId} created! Please login in the browser window.`);
+      alert(`账号 ${accountId} 已创建！请在浏览器窗口中登录。`);
       loadData();
     } catch (error) {
       console.error('Failed to add account:', error);
-      alert('Failed to create new account');
+      alert('创建账号失败');
     } finally {
       setActionLoading(false);
     }
@@ -90,7 +90,7 @@ export default function Dashboard() {
       loadData();
     } catch (error) {
       console.error('Failed to open all browsers:', error);
-      alert('Failed to open all browsers');
+      alert('打开所有浏览器失败');
     } finally {
       setActionLoading(false);
     }
@@ -103,7 +103,7 @@ export default function Dashboard() {
       loadData();
     } catch (error) {
       console.error('Failed to close all browsers:', error);
-      alert('Failed to close all browsers');
+      alert('关闭所有浏览器失败');
     } finally {
       setActionLoading(false);
     }
@@ -141,10 +141,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-stone-50 tracking-tight">
-                XHS Multi-Account Scraper
+                小红书多账号采集器
               </h1>
               <p className="text-sm text-stone-500 mt-1 font-mono">
-                Manage accounts and scrape Xiaohongshu posts in parallel
+                管理多账号并行采集小红书笔记
               </p>
             </div>
             <TabNavigation />
@@ -163,21 +163,21 @@ export default function Dashboard() {
             disabled={actionLoading}
             className="px-5 py-2.5 bg-[rgba(16,185,129,0.2)] text-emerald-300 border border-[rgba(16,185,129,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(16,185,129,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            + Add New Account
+            + 添加新账号
           </button>
           <button
             onClick={handleOpenAll}
             disabled={actionLoading}
             className="px-5 py-2.5 bg-[rgba(59,130,246,0.2)] text-blue-300 border border-[rgba(59,130,246,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(59,130,246,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Open All Browsers
+            打开所有浏览器
           </button>
           <button
             onClick={handleCloseAll}
             disabled={actionLoading}
             className="px-5 py-2.5 bg-[rgba(245,158,11,0.2)] text-amber-300 border border-[rgba(245,158,11,0.3)] rounded-lg font-medium text-sm transition-all hover:bg-[rgba(245,158,11,0.3)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Close All Browsers
+            关闭所有浏览器
           </button>
 
           {/* Active tasks indicator */}
@@ -185,7 +185,7 @@ export default function Dashboard() {
             <div className="ml-auto flex items-center gap-2 px-4 py-2 bg-[rgba(217,119,87,0.15)] border border-[rgba(217,119,87,0.25)] rounded-lg">
               <div className="w-2 h-2 bg-[#D97757] rounded-full animate-pulse"></div>
               <span className="text-sm text-[#E8A090] font-mono">
-                {activeTasks.size} task{activeTasks.size > 1 ? 's' : ''} running
+                {activeTasks.size} 个任务运行中
               </span>
             </div>
           )}
@@ -194,7 +194,7 @@ export default function Dashboard() {
         {/* Accounts Section with Console Logs */}
         <div className="mb-8">
           <h2 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-4">
-            Accounts
+            账号列表
           </h2>
           {loading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -216,7 +216,7 @@ export default function Dashboard() {
             </div>
           ) : accounts.length === 0 ? (
             <div className="bg-stone-800 rounded-xl p-8 text-center text-stone-500 border border-stone-700">
-              <p>No accounts yet. Click &quot;Add New Account&quot; to get started.</p>
+              <p>暂无账号，点击"添加新账号"开始使用。</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -250,7 +250,7 @@ export default function Dashboard() {
 
       {/* Footer */}
       <footer className="mt-24 py-6 text-center text-stone-600 text-sm font-mono">
-        <p>XHS Multi-Account Scraper</p>
+        <p>小红书多账号采集器</p>
       </footer>
     </div>
   );

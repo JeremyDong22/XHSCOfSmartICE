@@ -1,7 +1,7 @@
 // Stats panel component displaying dashboard metrics
-// Version: 2.2 - Removed loading skeleton to prevent flash on page switch
-// Changes: Always show stats with current values, no loading state UI change
-// Previous: Fixed to match actual Stats interface from API
+// Version: 2.3 - UI localization to Chinese
+// Changes: All metric labels translated to Chinese
+// Previous: Always show stats with current values, no loading state UI change
 
 'use client';
 
@@ -18,22 +18,22 @@ export default function StatsPanel({ stats, loading, activeTasksCount = 0 }: Sta
   const statItems = [
     {
       value: stats?.total ?? 0,
-      label: 'Total Accounts',
+      label: '账号总数',
       colorClass: 'text-emerald-300',
     },
     {
       value: stats?.browsers_open ?? 0,
-      label: 'Open Browsers',
+      label: '打开的浏览器',
       colorClass: 'text-blue-300',
     },
     {
       value: stats?.with_session ?? 0,
-      label: 'With Session',
+      label: '已登录会话',
       colorClass: 'text-[#D97757]',
     },
     {
       value: activeTasksCount,
-      label: 'Active Tasks',
+      label: '运行中任务',
       colorClass: 'text-amber-300',
     },
   ];

@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.7 - Added rate_limited status styling and warning display
-// Changes: Added amber/orange styling for rate limited tasks, warning message panel
-// Previous: Added 2-column grid layout and foldable log console
+// Version: 1.8 - UI localization to Chinese
+// Changes: All labels, buttons, and messages translated to Chinese
+// Previous: Added rate_limited status styling and warning display
 
 'use client';
 
@@ -85,11 +85,11 @@ function AnimatedDots() {
 // Status badge component
 function StatusBadge({ status }: { status: CleaningTask['status'] }) {
   const statusConfig = {
-    queued: { text: 'Queued', bg: 'bg-stone-700', color: 'text-stone-300' },
-    processing: { text: 'Processing', bg: 'bg-[rgba(59,130,246,0.2)]', color: 'text-blue-300' },
-    completed: { text: 'Completed', bg: 'bg-[rgba(16,185,129,0.2)]', color: 'text-emerald-300' },
-    failed: { text: 'Failed', bg: 'bg-[rgba(239,68,68,0.2)]', color: 'text-red-300' },
-    rate_limited: { text: '⚠️ Rate Limited', bg: 'bg-[rgba(245,158,11,0.2)]', color: 'text-amber-300' },
+    queued: { text: '排队中', bg: 'bg-stone-700', color: 'text-stone-300' },
+    processing: { text: '处理中', bg: 'bg-[rgba(59,130,246,0.2)]', color: 'text-blue-300' },
+    completed: { text: '已完成', bg: 'bg-[rgba(16,185,129,0.2)]', color: 'text-emerald-300' },
+    failed: { text: '失败', bg: 'bg-[rgba(239,68,68,0.2)]', color: 'text-red-300' },
+    rate_limited: { text: '⚠️ 频率限制', bg: 'bg-[rgba(245,158,11,0.2)]', color: 'text-amber-300' },
   };
 
   const config = statusConfig[status];
@@ -198,13 +198,13 @@ function TaskCard({
           <button
             onClick={onCancel}
             className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)] transition-colors"
-            title="Stop processing"
+            title="停止处理"
           >
             {/* Stop sign (octagon) icon */}
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2zM8 7v10h8V7H8z" />
             </svg>
-            Stop
+            停止
           </button>
         )}
       </div>
@@ -214,7 +214,7 @@ function TaskCard({
 
       {/* Files list */}
       <div className="mb-2">
-        <p className="text-xs text-stone-500 mb-1">Files ({task.files.length}):</p>
+        <p className="text-xs text-stone-500 mb-1">文件 ({task.files.length}):</p>
         <div className="flex flex-wrap gap-1">
           {task.files.slice(0, 2).map((file, i) => (
             <span
@@ -227,7 +227,7 @@ function TaskCard({
           ))}
           {task.files.length > 2 && (
             <span className="px-1.5 py-0.5 text-xs text-stone-500">
-              +{task.files.length - 2} more
+              +{task.files.length - 2} 更多
             </span>
           )}
         </div>
@@ -249,7 +249,7 @@ function TaskCard({
             >
               <path d="M9 18l6-6-6-6" />
             </svg>
-            <span className="font-mono">Logs ({logs.length})</span>
+            <span className="font-mono">日志 ({logs.length})</span>
           </button>
 
           {logsExpanded && (
@@ -258,7 +258,7 @@ function TaskCard({
               className="bg-stone-950 rounded border border-stone-800 p-2 max-h-32 overflow-y-auto font-mono text-xs"
             >
               {logs.length === 0 ? (
-                <p className="text-stone-600 italic">Waiting for logs...</p>
+                <p className="text-stone-600 italic">等待日志...</p>
               ) : (
                 logs.map((log, i) => (
                   <div
@@ -284,8 +284,8 @@ function TaskCard({
       <div className="flex items-center justify-between text-xs text-stone-500">
         <span>
           {task.status === 'completed'
-            ? `Completed at ${formatStartTime(task.completedAt)}`
-            : `Started: ${task.startedAt ? formatStartTime(task.startedAt) : 'Waiting...'}`
+            ? `完成于 ${formatStartTime(task.completedAt)}`
+            : `开始: ${task.startedAt ? formatStartTime(task.startedAt) : '等待中...'}`
           }
         </span>
         {task.status === 'processing' && (
@@ -293,7 +293,7 @@ function TaskCard({
         )}
         {task.status === 'completed' && task.completedAt && task.startedAt && (
           <span className="text-emerald-400 font-medium">
-            Duration: {formatDuration(task.startedAt, task.completedAt)}
+            耗时: {formatDuration(task.startedAt, task.completedAt)}
           </span>
         )}
       </div>
@@ -335,12 +335,12 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
             <span className="text-white font-bold text-sm">3</span>
           </div>
           <div>
-            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Queue</h3>
-            <p className="text-xs text-stone-500">No tasks in queue</p>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">清洗队列</h3>
+            <p className="text-xs text-stone-500">队列中没有任务</p>
           </div>
         </div>
         <div className="text-center py-6 text-stone-500 text-sm">
-          <p>Add tasks from the Washing Machine to start processing.</p>
+          <p>从数据清洗面板添加任务开始处理。</p>
         </div>
       </div>
     );
@@ -356,14 +356,14 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
               <span className="text-white font-bold text-sm">3</span>
             </div>
             <div>
-              <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Queue</h3>
+              <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">清洗队列</h3>
               <p className="text-xs font-mono text-stone-500">
-                {processingTasks.length} processing · {queuedTasks.length} queued
+                {processingTasks.length} 处理中 · {queuedTasks.length} 排队中
               </p>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-stone-500">Total files</p>
+            <p className="text-xs text-stone-500">文件总数</p>
             <p className="text-sm font-mono text-stone-300">{totalFiles}</p>
           </div>
         </div>
@@ -389,7 +389,7 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
         {completedTasks.length > 0 && activeTasks.length > 0 && (
           <div className="flex items-center gap-2 py-3 mt-3">
             <div className="flex-1 h-px bg-stone-700" />
-            <span className="text-xs text-stone-500">Completed</span>
+            <span className="text-xs text-stone-500">已完成</span>
             <div className="flex-1 h-px bg-stone-700" />
           </div>
         )}
@@ -409,7 +409,7 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
 
         {completedTasks.length > 6 && (
           <p className="text-xs text-stone-500 text-center py-2 mt-2">
-            +{completedTasks.length - 6} more completed tasks
+            +{completedTasks.length - 6} 个已完成任务
           </p>
         )}
       </div>
