@@ -1,18 +1,22 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 1.6 - Real-time browser status updates via SSE
-# Changes: Added BrowserEventManager for broadcasting browser state changes to all clients
-# Previous: PostgreSQL database integration for tracking and statistics
+# Version: 1.7 - Data cleaning and Gemini labeling integration
+# Changes: Added cleaning endpoints for filtering and labeling scraped results with Gemini
+# Previous: Real-time browser status updates via SSE
 
 import os
 import json
 import uuid
 import asyncio
-from typing import List, Optional, Dict, Any
+import logging
+from typing import List, Optional, Dict, Any, Literal
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 from account_manager import AccountManager, BASE_DIR
 from browser_manager import BrowserManager
@@ -20,6 +24,13 @@ from xiaohongshu_scraper import run_scrape_task, OUTPUT_DIR
 from data_models import ScrapeFilter
 from scrape_manager import ScrapeManager
 from browser_event_manager import BrowserEventManager
+from data_cleaning_service import (
+    DataCleaningService,
+    CleaningConfig,
+    FilterByCondition,
+    LabelByCondition,
+    CLEANED_OUTPUT_DIR
+)
 
 # Database imports
 from database import init_database, close_database, get_database
@@ -77,17 +88,52 @@ class ResultFile(BaseModel):
     size: int
 
 
+# Cleaning API models
+class FilterByRequest(BaseModel):
+    metric: Literal["likes", "collects", "comments"]
+    operator: Literal["gte", "lte", "eq"]
+    value: int
+
+
+class LabelByRequest(BaseModel):
+    image_target: Optional[Literal["cover_image", "images"]] = None
+    text_target: Optional[Literal["title", "content"]] = None
+    categories: List[str]
+    prompt: str
+
+
+class CleaningRequest(BaseModel):
+    source_files: List[str]  # Filenames in output/ directory
+    filter_by: Optional[FilterByRequest] = None
+    label_by: Optional[LabelByRequest] = None
+    output_filename: Optional[str] = None
+
+
+class CleaningStartResponse(BaseModel):
+    success: bool
+    task_id: str
+    message: str
+
+
+class CleanedResultFile(BaseModel):
+    filename: str
+    size: int
+    cleaned_at: str
+    total_posts: int
+
+
 # Global managers
 account_manager: AccountManager = None
 browser_manager: BrowserManager = None
 scrape_manager: ScrapeManager = None
 browser_event_manager: BrowserEventManager = None
+cleaning_service: DataCleaningService = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global account_manager, browser_manager, scrape_manager, browser_event_manager
+    global account_manager, browser_manager, scrape_manager, browser_event_manager, cleaning_service
 
     # Startup
     print("Starting up XHS Scraper API...")
@@ -104,6 +150,7 @@ async def lifespan(app: FastAPI):
     browser_manager = BrowserManager(account_manager)
     scrape_manager = ScrapeManager()
     browser_event_manager = BrowserEventManager()
+    cleaning_service = DataCleaningService()
     await browser_manager.start()
 
     yield
@@ -589,6 +636,138 @@ async def delete_scrape_result(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     # Security check - only allow deleting .json files in OUTPUT_DIR
+    if not filename.endswith('.json'):
+        raise HTTPException(status_code=400, detail="Can only delete .json files")
+
+    try:
+        os.remove(filepath)
+        return {"success": True, "message": f"Deleted {filename}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+
+# Data Cleaning endpoints
+@app.post("/api/cleaning/start")
+async def start_cleaning(request: CleaningRequest):
+    """
+    Start a data cleaning and labeling task.
+
+    This endpoint processes scraped JSON files by:
+    1. Loading posts from specified source files
+    2. Optionally filtering by metrics (likes, collects, comments)
+    3. Optionally labeling using Gemini with image/text combinations
+    4. Saving cleaned results with metadata
+    """
+    # Convert filenames to full paths
+    source_paths = []
+    for filename in request.source_files:
+        filepath = os.path.join(OUTPUT_DIR, filename)
+        if not os.path.exists(filepath):
+            raise HTTPException(status_code=404, detail=f"Source file not found: {filename}")
+        source_paths.append(filepath)
+
+    # Build config
+    config = CleaningConfig(
+        source_files=source_paths,
+        output_filename=request.output_filename
+    )
+
+    # Add filter if provided
+    if request.filter_by:
+        config.filter_by = FilterByCondition(
+            metric=request.filter_by.metric,
+            operator=request.filter_by.operator,
+            value=request.filter_by.value
+        )
+
+    # Add label if provided
+    if request.label_by:
+        config.label_by = LabelByCondition(
+            image_target=request.label_by.image_target,
+            text_target=request.label_by.text_target,
+            categories=request.label_by.categories,
+            prompt=request.label_by.prompt
+        )
+
+    # Run cleaning in background task
+    task_id = str(uuid.uuid4())
+
+    async def run_cleaning_task():
+        try:
+            logger.info(f"Starting cleaning task {task_id}")
+            result = cleaning_service.clean_and_label(config)
+            output_path = cleaning_service.save_cleaned_result(result, config.output_filename)
+            logger.info(f"Cleaning task {task_id} completed: {output_path}")
+        except Exception as e:
+            logger.error(f"Cleaning task {task_id} failed: {e}")
+
+    # Start task in background
+    asyncio.create_task(run_cleaning_task())
+
+    return {
+        "success": True,
+        "task_id": task_id,
+        "message": "Cleaning task started. Results will be saved to cleaned_output/"
+    }
+
+
+@app.get("/api/cleaning/results", response_model=List[CleanedResultFile])
+async def get_cleaned_results():
+    """List all cleaned result files with metadata"""
+    if not os.path.exists(CLEANED_OUTPUT_DIR):
+        return []
+
+    files = []
+    for filename in os.listdir(CLEANED_OUTPUT_DIR):
+        if filename.endswith('.json'):
+            filepath = os.path.join(CLEANED_OUTPUT_DIR, filename)
+
+            # Read metadata from file
+            try:
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    metadata = data.get("metadata", {})
+
+                    files.append(CleanedResultFile(
+                        filename=filename,
+                        size=os.path.getsize(filepath),
+                        cleaned_at=metadata.get("cleaned_at", ""),
+                        total_posts=metadata.get("total_posts_output", 0)
+                    ))
+            except Exception as e:
+                logger.error(f"Failed to read metadata from {filename}: {e}")
+                # Still include file even if metadata reading fails
+                files.append(CleanedResultFile(
+                    filename=filename,
+                    size=os.path.getsize(filepath),
+                    cleaned_at="",
+                    total_posts=0
+                ))
+
+    return sorted(files, key=lambda x: x.filename, reverse=True)
+
+
+@app.get("/api/cleaning/results/{filename}")
+async def get_cleaned_result(filename: str):
+    """Get contents of a specific cleaned result file"""
+    filepath = os.path.join(CLEANED_OUTPUT_DIR, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        return json.load(f)
+
+
+@app.delete("/api/cleaning/results/{filename}")
+async def delete_cleaned_result(filename: str):
+    """Delete a cleaned result file"""
+    filepath = os.path.join(CLEANED_OUTPUT_DIR, filename)
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Security check - only allow deleting .json files in CLEANED_OUTPUT_DIR
     if not filename.endswith('.json'):
         raise HTTPException(status_code=400, detail="Can only delete .json files")
 
