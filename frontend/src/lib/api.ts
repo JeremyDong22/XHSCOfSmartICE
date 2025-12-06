@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.5 - Dynamic API URL for LAN access
-// Changes: API_BASE now detects hostname for LAN compatibility
-// Previous: Added getAccountStats and getAllAccountsStats functions for usage tracking
+// Version: 1.6 - Added Data Cleaning API functions
+// Changes: Added cleaning endpoints for Gemini-based labeling
+// Previous: API_BASE now detects hostname for LAN compatibility
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -289,4 +289,106 @@ export async function getAllAccountsStats(): Promise<AccountStats[]> {
   const res = await fetch(`${API_BASE}/stats/all`);
   if (!res.ok) throw new Error('Failed to fetch all account stats');
   return res.json();
+}
+
+// Data Cleaning API Types
+export interface FilterByRequest {
+  metric: 'likes' | 'collects' | 'comments';
+  operator: 'gte' | 'lte' | 'gt' | 'lt' | 'eq';
+  value: number;
+}
+
+export interface LabelByRequest {
+  image_target?: 'cover_image' | 'images' | null;
+  text_target?: 'title' | 'content' | null;
+  categories: string[];
+  prompt: string;
+}
+
+export interface CleaningRequest {
+  source_files: string[];
+  filter_by?: FilterByRequest | null;
+  label_by?: LabelByRequest | null;
+  output_filename?: string;
+}
+
+export interface CleaningStartResponse {
+  success: boolean;
+  output_file: string;
+  posts_processed: number;
+  message: string;
+}
+
+export interface CleanedResultFile {
+  filename: string;
+  size: number;
+  cleaned_at: string;
+  total_posts: number;
+}
+
+export interface CleanedResultMetadata {
+  cleaned_at: string;
+  processed_by: string;
+  processing_time_seconds: number;
+  filter_by_condition?: {
+    metric: string;
+    operator: string;
+    value: number;
+  };
+  label_by_condition?: {
+    image_target: string | null;
+    text_target: string | null;
+    categories: string[];
+    prompt: string;
+  };
+  original_files: string[];
+  total_posts_input: number;
+  total_posts_output: number;
+}
+
+export interface CleanedPost extends XHSPost {
+  labels?: Record<string, string>;
+  label_confidence?: number;
+  label_reasoning?: string;
+}
+
+export interface CleanedResultData {
+  metadata: CleanedResultMetadata;
+  posts: CleanedPost[];
+}
+
+// Data Cleaning API Functions
+export async function startCleaning(request: CleaningRequest): Promise<CleaningStartResponse> {
+  const res = await fetch(`${API_BASE}/cleaning/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to start cleaning');
+  }
+  return res.json();
+}
+
+export async function getCleanedResults(): Promise<CleanedResultFile[]> {
+  const res = await fetch(`${API_BASE}/cleaning/results`);
+  if (!res.ok) throw new Error('Failed to fetch cleaned results');
+  return res.json();
+}
+
+export async function getCleanedResult(filename: string): Promise<CleanedResultData> {
+  const res = await fetch(`${API_BASE}/cleaning/results/${filename}`);
+  if (!res.ok) throw new Error('Failed to fetch cleaned result');
+  return res.json();
+}
+
+export async function deleteCleanedResult(filename: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/cleaning/results/${filename}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to delete cleaned result');
+  }
 }

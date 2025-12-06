@@ -91,7 +91,7 @@ class ResultFile(BaseModel):
 # Cleaning API models
 class FilterByRequest(BaseModel):
     metric: Literal["likes", "collects", "comments"]
-    operator: Literal["gte", "lte", "eq"]
+    operator: Literal["gte", "lte", "gt", "lt", "eq"]
     value: int
 
 

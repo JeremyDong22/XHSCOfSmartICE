@@ -30,7 +30,7 @@ CLEANED_OUTPUT_DIR.mkdir(exist_ok=True)
 class FilterByCondition:
     """Filter condition for pre-filtering posts before labeling"""
     metric: Literal["likes", "collects", "comments"]
-    operator: Literal["gte", "lte", "eq"]
+    operator: Literal["gte", "lte", "gt", "lt", "eq"]
     value: int
 
     def passes(self, post: Dict[str, Any]) -> bool:
@@ -41,6 +41,10 @@ class FilterByCondition:
             return metric_value >= self.value
         elif self.operator == "lte":
             return metric_value <= self.value
+        elif self.operator == "gt":
+            return metric_value > self.value
+        elif self.operator == "lt":
+            return metric_value < self.value
         elif self.operator == "eq":
             return metric_value == self.value
 

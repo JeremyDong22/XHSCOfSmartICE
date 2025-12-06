@@ -1,14 +1,21 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 1.4 - Updated to support new multi-target Label By configuration
+// Version: 1.5 - Connected to backend API for real Gemini labeling
 // Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import ScrapeResultsPanel, { EnrichedResultFile } from './ScrapeResultsPanel';
 import WashingMachine, { CleaningTask } from './WashingMachine';
 import ProcessingQueue from './ProcessingQueue';
 import CleanedResultsViewer, { CleanedResultFile, CleanedResultData } from './CleanedResultsViewer';
+import {
+  startCleaning,
+  getCleanedResults,
+  getCleanedResult,
+  CleaningRequest,
+  CleanedResultFile as ApiCleanedResultFile,
+} from '@/lib/api';
 
 export default function DataCleaningTab() {
   // Selected files from the left panel
@@ -30,105 +37,129 @@ export default function DataCleaningTab() {
     setAvailableFiles(files);
   }, []);
 
-  // Handle task submission from washing machine
-  const handleTaskSubmit = useCallback((task: CleaningTask) => {
+  // Load cleaned results from backend on mount and after task completion
+  const loadCleanedResults = useCallback(async () => {
+    try {
+      const results = await getCleanedResults();
+      const mappedFiles: CleanedResultFile[] = results.map((r: ApiCleanedResultFile) => ({
+        filename: r.filename,
+        size: r.size,
+        cleanedAt: new Date(r.cleaned_at),
+      }));
+      setCleanedFiles(mappedFiles);
+    } catch (err) {
+      console.error('Failed to load cleaned results:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCleanedResults();
+  }, [loadCleanedResults]);
+
+  // Handle task submission from washing machine - calls real backend API
+  const handleTaskSubmit = useCallback(async (task: CleaningTask) => {
     // Add task to queue with queued status
     setTasks(prev => [...prev, task]);
 
-    // Simulate task processing (in production, this would be an API call)
-    simulateTaskProcessing(task.id);
-
     // Clear selection after submission
     setSelectedFiles([]);
-  }, []);
 
-  // Simulate task processing (placeholder for real backend integration)
-  const simulateTaskProcessing = (taskId: string) => {
-    // Start processing after a short delay
-    setTimeout(() => {
+    // Build the cleaning request for the backend
+    const request: CleaningRequest = {
+      source_files: task.files,
+      filter_by: task.config.filterBy.enabled ? {
+        metric: task.config.filterBy.metric,
+        operator: task.config.filterBy.operator,
+        value: task.config.filterBy.value,
+      } : null,
+      label_by: task.config.labelBy.enabled ? {
+        image_target: task.config.labelBy.imageTarget,
+        text_target: task.config.labelBy.textTarget,
+        categories: task.config.labelBy.labels,
+        prompt: task.config.labelBy.prompt,
+      } : null,
+    };
+
+    // Mark task as processing
+    setTasks(prev => prev.map(t =>
+      t.id === task.id
+        ? { ...t, status: 'processing' as const, startedAt: new Date(), progress: 10 }
+        : t
+    ));
+
+    try {
+      // Call the backend API
+      const response = await startCleaning(request);
+
+      // Mark as completed
       setTasks(prev => prev.map(t =>
-        t.id === taskId
-          ? { ...t, status: 'processing' as const, startedAt: new Date(), progress: 0 }
+        t.id === task.id
+          ? { ...t, status: 'completed' as const, progress: 100, completedAt: new Date() }
           : t
       ));
 
-      // Simulate progress updates
-      let progress = 0;
-      const progressInterval = setInterval(() => {
-        progress += Math.random() * 15 + 5;
-        if (progress >= 100) {
-          clearInterval(progressInterval);
+      // Reload cleaned results to show the new file
+      await loadCleanedResults();
 
-          // Mark as completed
-          setTasks(prev => prev.map(t =>
-            t.id === taskId
-              ? { ...t, status: 'completed' as const, progress: 100, completedAt: new Date() }
-              : t
-          ));
-
-          // Add a mock cleaned result file
-          const newCleanedFile: CleanedResultFile = {
-            filename: `cleaned_${taskId}.json`,
-            size: Math.floor(Math.random() * 500000) + 50000,
-            cleanedAt: new Date(),
-          };
-          setCleanedFiles(prev => [newCleanedFile, ...prev]);
-        } else {
-          setTasks(prev => prev.map(t =>
-            t.id === taskId
-              ? { ...t, progress: Math.min(progress, 99) }
-              : t
-          ));
-        }
-      }, 800);
-    }, 500);
-  };
+    } catch (err) {
+      console.error('Cleaning task failed:', err);
+      // Mark task as failed (use 'queued' status to indicate error for now)
+      setTasks(prev => prev.map(t =>
+        t.id === task.id
+          ? { ...t, status: 'queued' as const, progress: 0 }
+          : t
+      ));
+    }
+  }, [loadCleanedResults]);
 
   // Handle task cancellation
   const handleCancelTask = useCallback((taskId: string) => {
     setTasks(prev => prev.filter(t => t.id !== taskId));
   }, []);
 
-  // Handle cleaned file selection (mock data loader)
-  const handleCleanedFileSelect = useCallback((filename: string) => {
+  // Handle cleaned file selection - load real data from backend API
+  const handleCleanedFileSelect = useCallback(async (filename: string) => {
     setLoadingCleanedData(true);
 
-    // Find the task that created this file
-    const task = tasks.find(t => `cleaned_${t.id}.json` === filename);
+    try {
+      const data = await getCleanedResult(filename);
 
-    // Simulate loading cleaned data
-    setTimeout(() => {
-      const mockData: CleanedResultData = {
+      // Map API response to frontend format
+      const mappedData: CleanedResultData = {
         metadata: {
-          cleanedAt: new Date().toISOString(),
-          processedBy: 'gpt-4-vision-preview',
-          processingTime: Math.floor(Math.random() * 300) + 30,
-          filterByCondition: task?.config.filterBy.enabled
+          cleanedAt: data.metadata.cleaned_at,
+          processedBy: data.metadata.processed_by,
+          processingTime: data.metadata.processing_time_seconds,
+          filterByCondition: data.metadata.filter_by_condition
             ? {
-                metric: task.config.filterBy.metric,
-                operator: task.config.filterBy.operator,
-                value: task.config.filterBy.value,
+                metric: data.metadata.filter_by_condition.metric,
+                operator: data.metadata.filter_by_condition.operator,
+                value: data.metadata.filter_by_condition.value,
               }
             : undefined,
-          labelByCondition: task?.config.labelBy.enabled
+          labelByCondition: data.metadata.label_by_condition
             ? {
-                imageTarget: task.config.labelBy.imageTarget,
-                textTarget: task.config.labelBy.textTarget,
-                labelCount: task.config.labelBy.labelCount,
-                prompt: task.config.labelBy.prompt,
+                imageTarget: data.metadata.label_by_condition.image_target,
+                textTarget: data.metadata.label_by_condition.text_target,
+                labelCount: data.metadata.label_by_condition.categories?.length || 0,
+                prompt: data.metadata.label_by_condition.prompt,
               }
             : undefined,
-          originalFiles: task?.files || [],
-          totalPostsInput: 50,
-          totalPostsOutput: 42,
+          originalFiles: data.metadata.original_files,
+          totalPostsInput: data.metadata.total_posts_input,
+          totalPostsOutput: data.metadata.total_posts_output,
         },
-        posts: [], // In production, this would be populated with actual labeled posts
+        posts: data.posts,
       };
 
-      setSelectedCleanedData(mockData);
+      setSelectedCleanedData(mappedData);
+    } catch (err) {
+      console.error('Failed to load cleaned result:', err);
+      setSelectedCleanedData(null);
+    } finally {
       setLoadingCleanedData(false);
-    }, 500);
-  }, [tasks]);
+    }
+  }, []);
 
   // Count active tasks
   const activeTasks = tasks.filter(t => t.status === 'processing' || t.status === 'queued');
