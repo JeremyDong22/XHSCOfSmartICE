@@ -1,8 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 2.0 - Added rate_limited status to CleaningTask type
-// Changes: Status union now includes 'rate_limited' for API quota handling
-// Previous: Added separate name/description fields for label categories
-// Features: Label By with Image Analysis (cover image only) and Text Analysis (title only)
+// Version: 4.3 - UI localization to Chinese
+// Changes: All labels, buttons, and messages translated to Chinese
+// Previous: Collapsible prompt preview with smooth transition animation
 
 'use client';
 
@@ -16,27 +15,19 @@ export interface FilterByConfig {
   value: number;
 }
 
-// Label definition with short name for output and detailed description for AI inference
-export interface LabelDefinition {
-  name: string;        // Short label name for output (e.g., "single_food")
-  description: string; // Detailed description for AI to understand criteria
-}
-
 export interface LabelByConfig {
   enabled: boolean;
   // Image group - can select one or none
   imageTarget: 'cover_image' | 'images' | null;
   // Text group - can select one or none
   textTarget: 'title' | 'content' | null;
-  labelCount: number;
-  labels: LabelDefinition[];  // Array of label definitions with name and description
-  prompt: string;
+  userDescription: string;  // User's description of desired posts
+  fullPrompt: string;  // Complete prompt sent to Gemini (for transparency)
 }
 
 export interface CleaningConfig {
   filterBy: FilterByConfig;
   labelBy: LabelByConfig;
-  unifiedPrompt: string;
 }
 
 export interface CleaningTask {
@@ -62,83 +53,58 @@ export default function WashingMachine({
   onTaskSubmit,
   disabled = false,
 }: WashingMachineProps) {
-  // Label By state - labels array initialized with empty LabelDefinition objects
+  // Label By state - simplified to user description only
   const [labelBy, setLabelBy] = useState<LabelByConfig>({
     enabled: false,
     imageTarget: null,
     textTarget: null,
-    labelCount: 2,
-    labels: [
-      { name: '', description: '' },
-      { name: '', description: '' },
-    ],
-    prompt: '',
+    userDescription: '',
+    fullPrompt: '',
   });
 
-  // Unified prompt state - changed "Content Analyzer" to "Content Labeler"
-  const [unifiedPrompt, setUnifiedPrompt] = useState(
-    'You are a content labeler. Analyze the provided content and output your categorization in a structured JSON format with the following fields: { "label": "<category>", "confidence": <0-1>, "reasoning": "<brief explanation>" }'
-  );
+  // Prompt preview collapse state (default: collapsed)
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false);
 
-  // Example placeholder labels for each input box
-  const exampleLabels = [
-    { name: 'single_food', description: 'Only one type of food item in the image' },
-    { name: 'multiple_food', description: 'Multiple different food items or a spread' },
-    { name: 'lifestyle', description: 'Focus on lifestyle or ambiance, not food' },
-    { name: 'product', description: 'Product showcase or promotional content' },
-    { name: 'tutorial', description: 'Recipe or cooking tutorial content' },
-  ];
+  // Build the full prompt dynamically based on user description
+  // IMPORTANT: This must match EXACTLY what gemini_labeler.py sends to Gemini
+  const buildFullPrompt = (userDesc: string): string => {
+    return `You are a content labeler for Xiaohongshu (小红书) posts. Analyze the provided content and categorize it.
 
-  // Handle label count change - resize labels array
-  const handleLabelCountChange = (newCount: number) => {
-    const newLabels = [...labelBy.labels];
-    // Expand or shrink the array
-    while (newLabels.length < newCount) {
-      newLabels.push({ name: '', description: '' });
-    }
-    while (newLabels.length > newCount) {
-      newLabels.pop();
-    }
-    setLabelBy({ ...labelBy, labelCount: newCount, labels: newLabels });
+User's filter criteria: ${userDesc}
+
+Based on this criteria, determine if the post matches (是) or doesn't match (否).
+
+Also classify the image style into one of these fixed categories:
+- 特写图: Close-up shots focusing on the main subject (food, product details)
+- 环境图: Environment/ambiance shots showing location, atmosphere, setting
+- 拼接图: Collage or composite images combining multiple photos
+- 信息图: Infographic style with text overlays, promotional content, lists
+
+Output your analysis in this exact JSON format:
+{
+  "label": "<是 or 否>",
+  "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
+  "reasoning": "<brief explanation in Chinese>"
+}`;
   };
 
-  // Handle individual label name change
-  const handleLabelNameChange = (index: number, name: string) => {
-    const newLabels = [...labelBy.labels];
-    newLabels[index] = { ...newLabels[index], name };
-    setLabelBy({ ...labelBy, labels: newLabels });
+  // Update full prompt when user description changes
+  const handleUserDescriptionChange = (desc: string) => {
+    setLabelBy({
+      ...labelBy,
+      userDescription: desc,
+      fullPrompt: buildFullPrompt(desc)
+    });
   };
-
-  // Handle individual label description change
-  const handleLabelDescriptionChange = (index: number, description: string) => {
-    const newLabels = [...labelBy.labels];
-    newLabels[index] = { ...newLabels[index], description };
-    setLabelBy({ ...labelBy, labels: newLabels });
-  };
-
-  // Check if all label names are filled (descriptions are optional but recommended)
-  const allLabelNamesFilled = useMemo(() => {
-    return labelBy.labels.slice(0, labelBy.labelCount).every(l => l.name.trim().length > 0);
-  }, [labelBy.labels, labelBy.labelCount]);
-
-  // Get filled label names count
-  const filledLabelNamesCount = useMemo(() => {
-    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.name.trim().length > 0).length;
-  }, [labelBy.labels, labelBy.labelCount]);
-
-  // Get filled descriptions count (for showing completeness indicator)
-  const filledDescriptionsCount = useMemo(() => {
-    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.description.trim().length > 0).length;
-  }, [labelBy.labels, labelBy.labelCount]);
 
   // Validation
   const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null;
-  const isValid = selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget;
-  const hasLabelPrompt = !labelBy.enabled || allLabelNamesFilled;
+  const hasUserDescription = labelBy.userDescription.trim().length > 0;
+  const isValid = selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget && hasUserDescription;
 
   // Generate task and submit
   const handleSubmit = () => {
-    if (!isValid || !hasLabelPrompt) return;
+    if (!isValid) return;
 
     const task: CleaningTask = {
       id: `task_${Date.now()}`,
@@ -151,7 +117,6 @@ export default function WashingMachine({
           value: 0,
         },
         labelBy,
-        unifiedPrompt,
       },
       status: 'queued',
     };
@@ -168,7 +133,7 @@ export default function WashingMachine({
             <span className="text-white font-bold text-sm">2</span>
           </div>
           <div>
-            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Data Cleaning</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">数据清洗</h3>
           </div>
         </div>
 
@@ -272,123 +237,75 @@ export default function WashingMachine({
               </div>
             </div>
 
-            {/* Label count selector */}
-            <div className="mb-4">
-              <label className="block text-xs text-stone-500 mb-2">
-                How many labels/categories?
-              </label>
-              <div className="flex items-center gap-4">
-                <input
-                  type="range"
-                  min={2}
-                  max={5}
-                  value={labelBy.labelCount}
-                  onChange={(e) => handleLabelCountChange(parseInt(e.target.value))}
-                  disabled={!labelBy.enabled}
-                  className="flex-1"
-                />
-                <span className="w-8 text-center font-mono text-sm text-[#E8A090]">
-                  {labelBy.labelCount}
-                </span>
-              </div>
-            </div>
-
-            {/* Dynamic Label Input Boxes - Name and Description */}
+            {/* User Description Input */}
             <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-stone-500">
-                  Define your {labelBy.labelCount} categories:
-                </label>
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs ${allLabelNamesFilled ? 'text-emerald-400' : 'text-amber-400/70'}`}>
-                    Names: {filledLabelNamesCount}/{labelBy.labelCount}
-                  </span>
-                  <span className={`text-xs ${filledDescriptionsCount === labelBy.labelCount ? 'text-emerald-400' : 'text-stone-500'}`}>
-                    Desc: {filledDescriptionsCount}/{labelBy.labelCount}
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {Array.from({ length: labelBy.labelCount }).map((_, index) => (
-                  <div key={index} className="p-3 bg-stone-800 rounded-lg border border-stone-700">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-5 h-5 flex items-center justify-center rounded-full bg-stone-700 text-xs text-stone-400 flex-shrink-0">
-                        {index + 1}
-                      </span>
-                      <span className="text-xs text-stone-500">Category {index + 1}</span>
-                    </div>
-                    {/* Label Name Input */}
-                    <div className="mb-2">
-                      <label className="block text-xs text-stone-500 mb-1">Label Name (for output)</label>
-                      <input
-                        type="text"
-                        value={labelBy.labels[index]?.name || ''}
-                        onChange={(e) => handleLabelNameChange(index, e.target.value)}
-                        placeholder={`e.g., ${exampleLabels[index]?.name || 'category_name'}`}
-                        disabled={!labelBy.enabled}
-                        className={`w-full px-3 py-2 bg-stone-900 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors ${
-                          labelBy.labels[index]?.name?.trim()
-                            ? 'border-[rgba(16,185,129,0.3)]'
-                            : 'border-stone-700'
-                        }`}
-                      />
-                    </div>
-                    {/* Label Description Input */}
-                    <div>
-                      <label className="block text-xs text-stone-500 mb-1">Description (criteria for AI)</label>
-                      <textarea
-                        value={labelBy.labels[index]?.description || ''}
-                        onChange={(e) => handleLabelDescriptionChange(index, e.target.value)}
-                        placeholder={`e.g., ${exampleLabels[index]?.description || 'Describe what this category means...'}`}
-                        disabled={!labelBy.enabled}
-                        rows={2}
-                        className={`w-full px-3 py-2 bg-stone-900 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors resize-none ${
-                          labelBy.labels[index]?.description?.trim()
-                            ? 'border-[rgba(16,185,129,0.3)]'
-                            : 'border-stone-700'
-                        }`}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {labelBy.enabled && !allLabelNamesFilled && (
+              <label className="block text-xs text-stone-500 mb-2">
+                请描述你想清洗出来的帖子特征
+              </label>
+              <textarea
+                value={labelBy.userDescription}
+                onChange={(e) => handleUserDescriptionChange(e.target.value)}
+                disabled={!labelBy.enabled}
+                rows={3}
+                placeholder="例如：图片中只有一份甜品的帖子"
+                className={`w-full px-3 py-2 bg-stone-800 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors resize-none ${
+                  hasUserDescription
+                    ? 'border-[rgba(16,185,129,0.3)]'
+                    : 'border-stone-700'
+                }`}
+              />
+              {labelBy.enabled && !hasUserDescription && (
                 <p className="mt-2 text-xs text-amber-400/70">
-                  Please fill in all {labelBy.labelCount} label names (descriptions are optional but recommended)
+                  请输入帖子特征描述
                 </p>
               )}
             </div>
           </div>
         </section>
 
-        {/* UNIFIED PROMPT Section */}
-        <section>
-          <div className="flex items-center gap-2 mb-3">
-            <span className="text-sm font-medium text-stone-200">Output Format Prompt</span>
-            <span className="text-xs text-stone-500">(Controls how the LLM structures its response)</span>
-          </div>
+        {/* Debug: Prompt preview */}
+        {labelBy.enabled && hasUserDescription && (
+          <section className="-mt-2">
+            <button
+              onClick={() => setIsPromptExpanded(!isPromptExpanded)}
+              className="w-full mb-1 text-left"
+            >
+              <span className="text-xs text-stone-600">
+                &gt; {isPromptExpanded ? 'hide prompt' : 'full prompt preview'}
+              </span>
+            </button>
 
-          <div className="p-4 bg-stone-900 rounded-lg border border-stone-700">
-            <textarea
-              value={unifiedPrompt}
-              onChange={(e) => setUnifiedPrompt(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-sm text-stone-200 font-mono resize-none"
-            />
-            <p className="mt-2 text-xs text-stone-500">
-              This prompt tells the LLM how to format its output. It's prepended to all labeling requests.
-            </p>
-          </div>
-        </section>
+            {/* Expandable content with smooth transition */}
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                isPromptExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="p-4 bg-stone-900/30 rounded border border-stone-700/30">
+                <pre className="text-xs text-stone-400 font-mono whitespace-pre-wrap max-h-[300px] overflow-y-auto leading-relaxed">
+                  {labelBy.fullPrompt}
+                </pre>
+                <div className="mt-3 pt-3 border-t border-stone-700/30">
+                  <p className="text-xs text-stone-500">
+                    <span className="text-stone-600">Expected output:</span>{' '}
+                    <span className="text-stone-500 font-mono">label</span> (是/否) + {' '}
+                    <span className="text-stone-500 font-mono">style_label</span> (特写图/环境图/拼接图/信息图) + {' '}
+                    <span className="text-stone-500 font-mono">reasoning</span> (中文解释)
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
 
       {/* Footer - Submit Button */}
       <div className="p-4 border-t border-stone-700 bg-stone-900/50">
         <button
           onClick={handleSubmit}
-          disabled={!isValid || !hasLabelPrompt || disabled}
+          disabled={!isValid || disabled}
           className={`w-full py-3 rounded-lg font-medium text-sm transition-all flex items-center justify-center gap-2 ${
-            isValid && hasLabelPrompt && !disabled
+            isValid && !disabled
               ? 'bg-gradient-to-r from-[#D97757] to-[#B85C3E] text-white hover:from-[#E8886A] hover:to-[#C96D4F] shadow-lg shadow-[rgba(217,119,87,0.25)]'
               : 'bg-stone-700 text-stone-500 cursor-not-allowed'
           }`}
@@ -414,9 +331,9 @@ export default function WashingMachine({
             Select at least one analysis target (Image or Text)
           </p>
         )}
-        {isValid && !allLabelNamesFilled && (
+        {!isValid && selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget && !hasUserDescription && (
           <p className="mt-2 text-xs text-center text-amber-400/70">
-            Fill in all {labelBy.labelCount} label names ({filledLabelNamesCount}/{labelBy.labelCount} done)
+            Please describe the posts you want to filter
           </p>
         )}
       </div>

@@ -1,7 +1,7 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 2.0 - Preview now displays inline below selected file, increased list height
-// Changes: Restructured layout so preview expands under the selected file row
-// Previous: Fixed label filter dropdown key error with category objects
+// Version: 3.1 - UI localization to Chinese
+// Changes: All labels, buttons, and messages translated to Chinese
+// Previous: Food industry refactor with style_label and label filters
 
 'use client';
 
@@ -21,9 +21,8 @@ export interface CleaningMetadata {
   labelByCondition?: {
     imageTarget: string | null;
     textTarget: string | null;
-    labelCount: number;
-    prompt: string;
-    categories?: string[];  // User-defined categories for filter dropdown
+    userDescription: string;
+    fullPrompt: string;
   };
   originalFiles: string[];
   totalPostsInput: number;
@@ -31,13 +30,10 @@ export interface CleaningMetadata {
 }
 
 export interface LabeledPost extends XHSPost {
-  // Labels from backend: { label: "category_name" } - simple structure from Gemini
-  labels?: {
-    label?: string;  // Main label assigned by Gemini
-  };
-  // Separate fields for confidence and reasoning (at post level, not nested)
-  label_confidence?: number;
-  label_reasoning?: string;
+  // New structure: binary label + style label
+  label?: string;  // Binary: "是" or "否"
+  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图"
+  label_reasoning?: string;  // Explanation in Chinese
 }
 
 export interface CleanedResultData {
@@ -101,12 +97,10 @@ function formatFileSize(bytes: number): string {
 function LabeledPostCard({ post }: { post: LabeledPost }) {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const [showReasoning, setShowReasoning] = useState(false);
 
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
-
-  // Get the primary label to display (now using simple structure from backend)
-  const primaryLabel = post.labels?.label;
 
   return (
     <a
@@ -145,10 +139,37 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
           </div>
         )}
 
-        {/* Label badge */}
-        {primaryLabel && (
-          <div className="absolute top-2 left-2 px-2 py-1 bg-[rgba(217,119,87,0.9)] rounded-full">
-            <span className="text-xs text-white font-medium">{primaryLabel}</span>
+        {/* Label badge (top-left) - 是/否 with hover to show reasoning */}
+        {post.label && (
+          <div
+            className="absolute top-2 left-2 px-2 py-1 rounded-full cursor-pointer transition-all"
+            style={{
+              backgroundColor: post.label === '是' ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              setShowReasoning(!showReasoning);
+            }}
+            title={post.label_reasoning || '点击查看分析原因'}
+          >
+            <span className="text-xs text-white font-medium">{post.label}</span>
+          </div>
+        )}
+
+        {/* Reasoning tooltip */}
+        {showReasoning && post.label_reasoning && (
+          <div
+            className="absolute top-12 left-2 right-2 p-2 bg-black/90 rounded-lg z-10"
+            onClick={(e) => e.preventDefault()}
+          >
+            <p className="text-xs text-white">{post.label_reasoning}</p>
+          </div>
+        )}
+
+        {/* Style label badge (bottom-right) */}
+        {post.style_label && (
+          <div className="absolute bottom-2 right-2 px-2 py-1 bg-[rgba(217,119,87,0.9)] rounded-full">
+            <span className="text-xs text-white font-medium">{post.style_label}</span>
           </div>
         )}
 
@@ -205,31 +226,31 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
   return (
     <div className="bg-stone-900 rounded-lg border border-stone-700 p-4 mb-4">
       <h4 className="text-xs font-mono font-medium text-stone-500 uppercase tracking-widest mb-3">
-        Cleaning Metadata
+        清洗元数据
       </h4>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
         {/* Cleaned at */}
         <div>
-          <p className="text-stone-500 text-xs">Cleaned At</p>
+          <p className="text-stone-500 text-xs">清洗时间</p>
           <p className="text-stone-200">{formatDate(metadata.cleanedAt)}</p>
         </div>
 
         {/* Model */}
         <div>
-          <p className="text-stone-500 text-xs">Model</p>
+          <p className="text-stone-500 text-xs">模型</p>
           <p className="text-[#E8A090] font-mono">{metadata.processedBy}</p>
         </div>
 
         {/* Processing time */}
         <div>
-          <p className="text-stone-500 text-xs">Processing Time</p>
+          <p className="text-stone-500 text-xs">处理耗时</p>
           <p className="text-stone-200">{formatDuration(metadata.processingTime)}</p>
         </div>
 
         {/* Posts count */}
         <div>
-          <p className="text-stone-500 text-xs">Posts</p>
+          <p className="text-stone-500 text-xs">帖子数量</p>
           <p className="text-stone-200">
             <span className="text-emerald-400">{metadata.totalPostsOutput}</span>
             <span className="text-stone-500"> / {metadata.totalPostsInput}</span>
@@ -242,7 +263,7 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
         {metadata.filterByCondition && (
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 bg-[rgba(59,130,246,0.2)] text-blue-300 text-xs rounded">
-              Filter By
+              筛选条件
             </span>
             <span className="text-xs text-stone-300">
               {metadata.filterByCondition.metric} {metadata.filterByCondition.operator} {metadata.filterByCondition.value}
@@ -253,15 +274,26 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
         {metadata.labelByCondition && (
           <div className="flex items-center gap-2">
             <span className="px-2 py-0.5 bg-[rgba(217,119,87,0.2)] text-[#E8A090] text-xs rounded">
-              Label By
+              标签条件
             </span>
             <span className="text-xs text-stone-300">
               {[
-                metadata.labelByCondition.imageTarget === 'cover_image' ? 'Cover Image' :
-                metadata.labelByCondition.imageTarget === 'images' ? 'All Images' : null,
-                metadata.labelByCondition.textTarget === 'title' ? 'Title Only' :
-                metadata.labelByCondition.textTarget === 'content' ? 'Title + Content' : null,
-              ].filter(Boolean).join(' + ')} ({metadata.labelByCondition.labelCount} labels)
+                metadata.labelByCondition.imageTarget === 'cover_image' ? '封面图片' :
+                metadata.labelByCondition.imageTarget === 'images' ? '全部图片' : null,
+                metadata.labelByCondition.textTarget === 'title' ? '标题' :
+                metadata.labelByCondition.textTarget === 'content' ? '正文' : null,
+              ].filter(Boolean).join(' + ')}
+            </span>
+          </div>
+        )}
+
+        {metadata.labelByCondition?.userDescription && (
+          <div className="flex items-start gap-2">
+            <span className="px-2 py-0.5 bg-[rgba(217,119,87,0.2)] text-[#E8A090] text-xs rounded flex-shrink-0">
+              描述
+            </span>
+            <span className="text-xs text-stone-300">
+              {metadata.labelByCondition.userDescription}
             </span>
           </div>
         )}
@@ -269,7 +301,7 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
 
       {/* Original files */}
       <div className="mt-3">
-        <p className="text-xs text-stone-500 mb-1">Source files:</p>
+        <p className="text-xs text-stone-500 mb-1">源文件:</p>
         <div className="flex flex-wrap gap-1">
           {metadata.originalFiles.slice(0, 5).map((file, i) => (
             <span key={i} className="px-1.5 py-0.5 bg-stone-800 rounded text-xs text-stone-400 truncate max-w-[150px]">
@@ -277,7 +309,7 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
             </span>
           ))}
           {metadata.originalFiles.length > 5 && (
-            <span className="text-xs text-stone-500">+{metadata.originalFiles.length - 5} more</span>
+            <span className="text-xs text-stone-500">+{metadata.originalFiles.length - 5} 更多</span>
           )}
         </div>
       </div>
@@ -296,6 +328,7 @@ export default function CleanedResultsViewer({
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [sortField, setSortField] = useState<SortField>('likes');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('all');
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string>('all');
   const [deleting, setDeleting] = useState<string | null>(null);
 
@@ -318,7 +351,7 @@ export default function CleanedResultsViewer({
   const handleDelete = async (filename: string, e: React.MouseEvent) => {
     e.stopPropagation();  // Prevent file selection
 
-    const confirmed = confirm(`Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`);
+    const confirmed = confirm(`确定要删除 "${filename}" 吗？\n\n此操作无法撤销。`);
     if (!confirmed) return;
 
     try {
@@ -334,35 +367,17 @@ export default function CleanedResultsViewer({
       onFileDeleted?.();
     } catch (error) {
       console.error('Failed to delete cleaned result:', error);
-      alert(error instanceof Error ? error.message : 'Failed to delete file');
+      alert(error instanceof Error ? error.message : '删除文件失败');
     } finally {
       setDeleting(null);
     }
   };
 
-  // Get categories from metadata (user-defined during labeling)
-  // Falls back to extracting unique labels from posts if metadata doesn't have categories
-  // Returns array of string names for use in filter dropdown
-  const availableLabels = useMemo(() => {
-    if (!selectedFileData) return [];
+  // Fixed style categories
+  const styleCategories = ['特写图', '环境图', '拼接图', '信息图'];
 
-    // Prefer categories from metadata - extract just the name strings
-    const categories = selectedFileData.metadata?.labelByCondition?.categories;
-    if (categories?.length) {
-      return categories.map((cat: { name: string; description: string } | string) =>
-        typeof cat === 'string' ? cat : cat.name
-      );
-    }
-
-    // Fallback: extract unique labels from posts
-    if (!selectedFileData.posts) return [];
-    const labels = new Set<string>();
-    selectedFileData.posts.forEach(post => {
-      const label = post.labels?.label;
-      if (label) labels.add(label);
-    });
-    return Array.from(labels).sort();
-  }, [selectedFileData]);
+  // Binary label categories
+  const labelCategories = ['是', '否'];
 
   // Filter and sort posts
   const processedPosts = useMemo(() => {
@@ -370,15 +385,17 @@ export default function CleanedResultsViewer({
 
     let result = [...selectedFileData.posts];
 
-    // Filter by label (using the simple label structure from backend)
-    if (selectedLabelFilter !== 'all') {
-      result = result.filter(post => {
-        const label = post.labels?.label;
-        return label === selectedLabelFilter;
-      });
+    // Filter by style_label (first layer)
+    if (selectedStyleFilter !== 'all') {
+      result = result.filter(post => post.style_label === selectedStyleFilter);
     }
 
-    // Sort
+    // Filter by label (second layer - 是/不是)
+    if (selectedLabelFilter !== 'all') {
+      result = result.filter(post => post.label === selectedLabelFilter);
+    }
+
+    // Sort by likes (default: high to low)
     result.sort((a, b) => {
       const aVal = a[sortField] || 0;
       const bVal = b[sortField] || 0;
@@ -386,7 +403,7 @@ export default function CleanedResultsViewer({
     });
 
     return result;
-  }, [selectedFileData, selectedLabelFilter, sortField, sortOrder]);
+  }, [selectedFileData, selectedStyleFilter, selectedLabelFilter, sortField, sortOrder]);
 
   if (files.length === 0) {
     return (
@@ -396,11 +413,11 @@ export default function CleanedResultsViewer({
             <span className="text-white font-bold text-sm">4</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">清洗结果</h3>
           </div>
         </div>
         <div className="text-center py-8 text-stone-500 text-sm">
-          <p>No cleaned results yet. Process some files in the Washing Machine.</p>
+          <p>暂无清洗结果。请先在数据清洗中处理文件。</p>
         </div>
       </div>
     );
@@ -417,7 +434,7 @@ export default function CleanedResultsViewer({
     }
 
     if (!selectedFileData) {
-      return <p className="text-stone-500 text-sm py-4">No content available</p>;
+      return <p className="text-stone-500 text-sm py-4">无可用内容</p>;
     }
 
     return (
@@ -437,7 +454,7 @@ export default function CleanedResultsViewer({
                   : 'text-stone-400 hover:text-stone-300'
               }`}
             >
-              Cards
+              卡片
             </button>
             <button
               onClick={() => setViewMode('json')}
@@ -451,61 +468,38 @@ export default function CleanedResultsViewer({
             </button>
           </div>
 
-          {/* Label filter */}
-          {availableLabels.length > 0 && (
-            <select
-              value={selectedLabelFilter}
-              onChange={(e) => setSelectedLabelFilter(e.target.value)}
-              className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-            >
-              <option value="all">All Labels</option>
-              {availableLabels.map(label => (
-                <option key={label} value={label}>{label}</option>
-              ))}
-            </select>
-          )}
+          {/* Style filter (first layer) */}
+          <select
+            value={selectedStyleFilter}
+            onChange={(e) => setSelectedStyleFilter(e.target.value)}
+            className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+          >
+            <option value="all">全部风格</option>
+            {styleCategories.map(style => (
+              <option key={style} value={style}>{style}</option>
+            ))}
+          </select>
 
-          {/* Sort controls */}
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
-              Sort by Likes
-            </span>
+          {/* Label filter (second layer) */}
+          <select
+            value={selectedLabelFilter}
+            onChange={(e) => setSelectedLabelFilter(e.target.value)}
+            className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+          >
+            <option value="all">全部标签</option>
+            {labelCategories.map(label => (
+              <option key={label} value={label}>{label}</option>
+            ))}
+          </select>
 
-            <button
-              type="button"
-              onClick={() => {
-                const newOrder = sortOrder === 'desc' ? 'asc' : 'desc';
-                setSortOrder(newOrder);
-              }}
-              className={`px-2 py-1.5 bg-stone-900 border rounded-lg transition-all cursor-pointer select-none ${
-                sortOrder === 'asc'
-                  ? 'border-[rgba(217,119,87,0.5)] text-[#E8A090]'
-                  : 'border-stone-700 text-stone-400 hover:border-stone-600'
-              }`}
-              title={sortOrder === 'desc' ? 'Click for Ascending' : 'Click for Descending'}
-            >
-              <div className="flex items-center gap-1">
-                <svg
-                  className={`w-4 h-4 transition-transform duration-200 ${
-                    sortOrder === 'asc' ? 'rotate-180' : ''
-                  }`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path d="M19 9l-7 7-7-7" />
-                </svg>
-                <span className="text-xs font-medium">
-                  {sortOrder === 'desc' ? 'DESC' : 'ASC'}
-                </span>
-              </div>
-            </button>
+          {/* Sort indicator (fixed to likes DESC) */}
+          <div className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
+            点赞数: 高 → 低
           </div>
 
           {/* Results count */}
           <span className="text-xs text-stone-500 ml-auto">
-            {processedPosts.length} posts
+            {processedPosts.length} 条帖子
           </span>
         </div>
 
@@ -536,84 +530,97 @@ export default function CleanedResultsViewer({
             <span className="text-white font-bold text-sm">4</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">清洗结果</h3>
           </div>
-          <span className="text-xs text-stone-500">{files.length} files</span>
+          <span className="text-xs text-stone-500">{files.length} 个文件</span>
         </div>
       </div>
 
-      {/* File list with inline previews - increased max height */}
-      <div className="p-4 space-y-2 max-h-[800px] overflow-y-auto">
+      {/* File list - compact without inline previews */}
+      <div className="p-4 space-y-2 max-h-[300px] overflow-y-auto">
         {sortedFiles.map((file) => (
-          <div key={file.filename} className="space-y-0">
-            {/* File row */}
-            <div
-              className={`flex items-stretch rounded-lg transition-all ${
-                selectedFile === file.filename
-                  ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)] rounded-b-none border-b-0'
-                  : 'bg-stone-900 border border-stone-700 hover:border-stone-600'
-              }`}
+          <div
+            key={file.filename}
+            className={`flex items-stretch rounded-lg transition-all ${
+              selectedFile === file.filename
+                ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)]'
+                : 'bg-stone-900 border border-stone-700 hover:border-stone-600'
+            }`}
+          >
+            <button
+              onClick={() => handleFileClick(file.filename)}
+              className="flex-1 text-left px-4 py-3 rounded-l-lg transition-colors"
             >
-              <button
-                onClick={() => handleFileClick(file.filename)}
-                className="flex-1 text-left px-4 py-3 rounded-l-lg transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {/* Expand/collapse indicator */}
-                    <svg
-                      className={`w-4 h-4 text-stone-400 transition-transform duration-200 ${
-                        selectedFile === file.filename ? 'rotate-90' : ''
-                      }`}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="M9 5l7 7-7 7" />
-                    </svg>
-                    <span className="font-medium text-stone-50 truncate text-sm">{file.filename}</span>
-                  </div>
-                  <span className="font-mono text-xs text-stone-500 ml-4">
-                    {formatFileSize(file.size)}
-                  </span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {/* Selection indicator */}
+                  <div className={`w-2 h-2 rounded-full transition-colors ${
+                    selectedFile === file.filename ? 'bg-[#D97757]' : 'bg-stone-600'
+                  }`} />
+                  <span className="font-medium text-stone-50 truncate text-sm">{file.filename}</span>
                 </div>
-              </button>
-              {/* Delete button */}
-              <button
-                onClick={(e) => handleDelete(file.filename, e)}
-                disabled={deleting === file.filename}
-                className="px-3 text-red-300 hover:bg-[rgba(239,68,68,0.2)] transition-colors rounded-r-lg disabled:opacity-50"
-                title="Delete file"
-              >
-                {deleting === file.filename ? (
-                  <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </button>
-            </div>
-
-            {/* Inline preview - shows directly below selected file */}
-            {selectedFile === file.filename && (
-              <div className="bg-[rgba(217,119,87,0.05)] border border-[rgba(217,119,87,0.25)] border-t-0 rounded-b-lg p-4">
-                {renderPreviewContent()}
+                <span className="font-mono text-xs text-stone-500 ml-4">
+                  {formatFileSize(file.size)}
+                </span>
               </div>
-            )}
+            </button>
+            {/* Delete button */}
+            <button
+              onClick={(e) => handleDelete(file.filename, e)}
+              disabled={deleting === file.filename}
+              className="px-3 text-red-300 hover:bg-[rgba(239,68,68,0.2)] transition-colors rounded-r-lg disabled:opacity-50"
+              title="删除文件"
+            >
+              {deleting === file.filename ? (
+                <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+            </button>
           </div>
         ))}
       </div>
+
+      {/* Preview section - separate area at bottom */}
+      {selectedFile && (
+        <div className="border-t border-stone-700">
+          {/* Preview header */}
+          <div className="px-4 py-3 bg-stone-900/50 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-[#D97757]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+              <span className="text-sm font-medium text-stone-200">预览: {selectedFile}</span>
+            </div>
+            <button
+              onClick={() => setSelectedFile(null)}
+              className="text-stone-400 hover:text-stone-200 transition-colors"
+              title="关闭预览"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Preview content */}
+          <div className="p-4">
+            {renderPreviewContent()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

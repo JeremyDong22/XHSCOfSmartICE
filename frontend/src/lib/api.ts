@@ -1,7 +1,10 @@
 // API client for XHS Multi-Account Scraper
-// Version: 2.0 - Added SSE streaming for cleaning task logs
-// Changes: Added subscribeToCleaningLogs function for real-time progress updates
-// Previous: Added CleaningTaskFull type and getCleaningTasks, deleteCleaningTask functions
+// Version: 2.1 - Food industry refactor: binary classification with style labels
+// Changes:
+// - Updated LabelByRequest to use user_description and full_prompt instead of categories
+// - Updated CleanedPost to include label and style_label fields
+// - Updated LabelByConfigStored to match new structure
+// Previous: Added SSE streaming for cleaning task logs
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -298,17 +301,11 @@ export interface FilterByRequest {
   value: number;
 }
 
-// Label category definition with name and description
-export interface LabelCategory {
-  name: string;        // Short label name for output (e.g., "single_food")
-  description: string; // Detailed description for AI inference criteria
-}
-
 export interface LabelByRequest {
   image_target?: 'cover_image' | 'images' | null;
   text_target?: 'title' | 'content' | null;
-  categories: LabelCategory[];  // Array of label definitions with name and description
-  prompt: string;
+  user_description: string;  // User's description of what posts they want to filter
+  full_prompt: string;  // Complete prompt sent to Gemini (for transparency)
 }
 
 export interface CleaningRequest {
@@ -347,8 +344,8 @@ export interface CleanedResultMetadata {
   label_by_condition?: {
     image_target: string | null;
     text_target: string | null;
-    categories: string[];
-    prompt: string;
+    user_description: string;
+    full_prompt: string;
   };
   original_files: string[];
   total_posts_input: number;
@@ -356,9 +353,9 @@ export interface CleanedResultMetadata {
 }
 
 export interface CleanedPost extends XHSPost {
-  labels?: Record<string, string>;
-  label_confidence?: number;
-  label_reasoning?: string;
+  label?: string;  // Binary: "是" or "不是"
+  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图"
+  label_reasoning?: string;  // Explanation in Chinese
 }
 
 export interface CleanedResultData {
@@ -429,24 +426,17 @@ export interface FilterByConfigStored {
   value: number;
 }
 
-export interface LabelDefinitionStored {
-  name: string;
-  description: string;
-}
-
 export interface LabelByConfigStored {
   enabled: boolean;
   imageTarget: string | null;
   textTarget: string | null;
-  labelCount: number;
-  labels: LabelDefinitionStored[];
-  prompt: string;
+  userDescription: string;
+  fullPrompt: string;
 }
 
 export interface CleaningConfigStored {
   filterBy: FilterByConfigStored;
   labelBy: LabelByConfigStored;
-  unifiedPrompt: string;
 }
 
 export interface CleaningTaskFull {

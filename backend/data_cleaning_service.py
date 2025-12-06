@@ -1,7 +1,11 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 1.5 - Re-export RateLimitError for API layer to catch
-# Changes: Import and propagate RateLimitError from gemini_labeler
-# Previous: Added progress callback support for real-time log streaming
+# Version: 2.1 - Food industry refactor: binary classification with style labels
+# Changes:
+# - Accept user description instead of category list
+# - Store full prompt for transparency
+# - Update result structure to include label, style_label, reasoning
+# - Remove LabelCategory dataclass (now using simple user description)
+# Previous: Re-export RateLimitError for API layer to catch
 
 import os
 import json
@@ -48,19 +52,12 @@ class FilterByCondition:
 
 
 @dataclass
-class LabelCategory:
-    """Label category with name and description"""
-    name: str         # Short label name for output (e.g., "single_food")
-    description: str  # Detailed description for AI inference criteria
-
-
-@dataclass
 class LabelByCondition:
-    """Label condition for Gemini categorization"""
+    """Label condition for Gemini binary categorization"""
     image_target: Optional[Literal["cover_image", "images"]]
     text_target: Optional[Literal["title", "content"]]
-    categories: List[LabelCategory]  # User-defined categories with name and description
-    prompt: str  # User's categorization prompt/instruction
+    user_description: str  # User's description of what posts they want to filter
+    full_prompt: str  # Complete prompt sent to Gemini (for transparency)
 
     def to_labeling_mode(self) -> LabelingMode:
         """Convert UI selections to GeminiLabeler LabelingMode"""
@@ -173,15 +170,15 @@ class DataCleaningService:
         progress_callback: Optional[Callable[[str], None]] = None
     ) -> List[Dict[str, Any]]:
         """
-        Apply Gemini labeling to posts.
+        Apply Gemini labeling to posts with binary classification.
 
         Args:
             posts: List of post dictionaries
-            label_condition: Label condition with categories and targets
+            label_condition: Label condition with user description and targets
             progress_callback: Optional callback(message) for progress updates
 
         Returns:
-            Posts with added label fields
+            Posts with added label fields (label, style_label, reasoning)
         """
         # Initialize labeler if not already done
         if self.labeler is None:
@@ -190,18 +187,18 @@ class DataCleaningService:
         # Get labeling mode
         mode = label_condition.to_labeling_mode()
         logger.info(f"Starting labeling with mode: {mode.value}")
+        logger.info(f"User description: {label_condition.user_description}")
 
         # Create a wrapper callback that converts labeler's callback format to string messages
         def labeler_progress(idx: int, total: int, title: str, status: str):
             if progress_callback:
                 progress_callback(f"[{idx}/{total}] {title} - {status}")
 
-        # Run batch labeling - pass user's prompt directly to Gemini (transparent prompting)
+        # Run batch labeling with user description
         results: List[LabelingResult] = self.labeler.label_posts_batch(
             posts=posts,
-            categories=label_condition.categories,
+            user_description=label_condition.user_description,
             mode=mode,
-            user_prompt=label_condition.prompt,
             progress_callback=labeler_progress
         )
 
@@ -211,9 +208,9 @@ class DataCleaningService:
             # Create a copy of the post
             labeled_post = post.copy()
 
-            # Add label fields
-            labeled_post["labels"] = result.labels
-            labeled_post["label_confidence"] = result.confidence
+            # Add label fields - new structure with label, style_label, reasoning
+            labeled_post["label"] = result.label
+            labeled_post["style_label"] = result.style_label
             labeled_post["label_reasoning"] = result.reasoning
 
             if result.error:
@@ -260,7 +257,7 @@ class DataCleaningService:
 
         # Step 3: Apply labels (if enabled)
         if config.label_by:
-            log(f"Starting labeling with {len(config.label_by.categories)} categories...")
+            log(f"Starting labeling with user description: {config.label_by.user_description[:50]}...")
             all_posts = self._apply_labels(all_posts, config.label_by, progress_callback)
 
         # Step 4: Calculate processing time
@@ -290,17 +287,12 @@ class DataCleaningService:
 
         # Add label condition metadata
         if config.label_by:
-            # Convert LabelCategory dataclass objects to dicts for JSON serialization
-            categories_as_dicts = [
-                {"name": cat.name, "description": cat.description}
-                for cat in config.label_by.categories
-            ]
             result["metadata"]["label_by_condition"] = {
                 "image_target": config.label_by.image_target,
                 "text_target": config.label_by.text_target,
-                "label_count": len(config.label_by.categories),
-                "prompt": config.label_by.prompt,
-                "categories": categories_as_dicts
+                "user_description": config.label_by.user_description,
+                "full_prompt": config.label_by.full_prompt,
+                "style_categories": ["特写图", "环境图", "拼接图", "信息图"]  # Fixed categories
             }
 
         logger.info(f"Cleaning complete in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts")

@@ -1,14 +1,19 @@
 # Gemini Flash Image and Content Labeling Module
-# Version: 1.8 - Added rate limit detection and auto-pause on 429 errors
+# Version: 2.0 - Food industry refactor: binary classification with style labels
 # Changes:
-# - Detect 429 rate limit errors and raise RateLimitError to stop processing
-# - Send rate limit warning through progress callback before stopping
-# - Return partial results with processed posts count
+# - New output format: {label: "是/否", style_label: "特写图/环境图/拼接图/信息图", reasoning: "中文解释"}
+# - Binary classification based on user-provided content description
+# - Fixed style categories: 特写图, 环境图, 拼接图, 信息图
+# - User description becomes binary match criteria (是 or 否)
+# - Transparent prompt exposure for user visibility
+#
+# Previous: Rate limit detection and auto-pause on 429 errors
 #
 # Features:
-# - Supports multiple labeling modes: cover image, all images, title, content, or combinations
+# - Binary content matching (是/否) based on user description
+# - Fixed image style classification (特写图/环境图/拼接图/信息图)
 # - Transparent prompting - what you see in UI is what Gemini sees
-# - Structured JSON output with labels, confidence, and reasoning
+# - Structured JSON output with label, style_label, and reasoning
 # - Error handling and retry logic for API calls
 # - Progress callback for real-time streaming logs
 # - Auto-pause on rate limit (429) errors
@@ -55,25 +60,22 @@ class LabelingMode(str, Enum):
     FULL = "full"  # All images + title + content
 
 
-@dataclass
-class LabelCategory:
-    """Label category with name and description for AI inference"""
-    name: str         # Short label name for output (e.g., "single_food")
-    description: str  # Detailed description for AI inference criteria
-
-    @classmethod
-    def from_dict(cls, data: dict) -> 'LabelCategory':
-        """Create LabelCategory from dictionary"""
-        return cls(name=data.get('name', ''), description=data.get('description', ''))
+# Fixed style categories for food industry
+STYLE_CATEGORIES = [
+    "特写图",  # Close-up shot
+    "环境图",  # Environment/Scene shot
+    "拼接图",  # Collage/Composite
+    "信息图",  # Infographic
+]
 
 
 @dataclass
 class LabelingResult:
     """Structured result for a single post's labeling"""
     note_id: str
-    labels: Dict[str, str]  # e.g., {"cover_image_label": "Single Dish"}
-    confidence: float  # 0.0 to 1.0
-    reasoning: str
+    label: str  # Binary: "是" or "不是"
+    style_label: str  # One of: "特写图", "环境图", "拼接图", "信息图"
+    reasoning: str  # Explanation in Chinese
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -109,40 +111,34 @@ class GeminiLabeler:
 
         logger.info(f"Initialized GeminiLabeler with model: {model_name} (no hidden system prompt)")
 
-    def _build_prompt(self, categories: List[LabelCategory], user_prompt: str) -> str:
+    def _build_prompt(self, user_description: str) -> str:
         """
-        Build the full prompt combining user's prompt with categories.
-
-        Categories now include both name (for output) and description (for inference).
-        The prompt instructs Gemini to use exact label names in output while using
-        descriptions as criteria for classification.
+        Build the full prompt for binary classification with style labeling.
 
         Args:
-            categories: List of LabelCategory objects with name and description
-            user_prompt: User's custom prompt from the UI (should include JSON format)
+            user_description: User's description of what posts they want to filter
 
         Returns:
-            Complete prompt string
+            Complete prompt string with output format and classification criteria
         """
-        # Format categories with clear separation of name (for output) and description (for inference)
-        categories_list = []
-        label_names = []
-        for cat in categories:
-            label_names.append(cat.name)
-            if cat.description:
-                categories_list.append(f"- \"{cat.name}\": {cat.description}")
-            else:
-                categories_list.append(f"- \"{cat.name}\"")
+        return f"""You are a content labeler for Xiaohongshu (小红书) posts. Analyze the provided content and categorize it.
 
-        categories_text = "\n".join(categories_list)
-        valid_labels = ", ".join([f'"{name}"' for name in label_names])
+User's filter criteria: {user_description}
 
-        return f"""{user_prompt}
+Based on this criteria, determine if the post matches (是) or doesn't match (否).
 
-CATEGORIES (use exact label name in your output, description explains what to look for):
-{categories_text}
+Also classify the image style into one of these fixed categories:
+- 特写图: Close-up shots focusing on the main subject (food, product details)
+- 环境图: Environment/ambiance shots showing location, atmosphere, setting
+- 拼接图: Collage or composite images combining multiple photos
+- 信息图: Infographic style with text overlays, promotional content, lists
 
-IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
+Output your analysis in this exact JSON format:
+{{
+  "label": "<是 or 否>",
+  "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
+  "reasoning": "<brief explanation in Chinese>"
+}}"""
 
     def _download_image(self, url: str) -> Optional[Image.Image]:
         """
@@ -167,7 +163,7 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
         self,
         post: Dict[str, Any],
         mode: LabelingMode,
-        categorization_prompt: str
+        full_prompt: str
     ) -> List[Any]:
         """
         Prepare content parts for Gemini API based on labeling mode.
@@ -175,12 +171,12 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
         Args:
             post: XHS post dictionary
             mode: Labeling mode
-            categorization_prompt: User categorization instructions
+            full_prompt: Complete prompt with instructions
 
         Returns:
             List of content parts (text and/or images) for Gemini
         """
-        parts = [categorization_prompt]
+        parts = [full_prompt]
 
         # Add images based on mode
         if mode in [LabelingMode.COVER_IMAGE, LabelingMode.COVER_IMAGE_TITLE, LabelingMode.COVER_IMAGE_CONTENT, LabelingMode.FULL]:
@@ -256,56 +252,29 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
             logger.error(f"Raw response: {response_text}")
             raise
 
-    def _normalize_categories(self, categories: List[Any]) -> List[LabelCategory]:
-        """
-        Normalize categories to List[LabelCategory] format.
-        Supports: List[str], List[dict], List[LabelCategory], or any object with name/description attrs.
-        Uses duck typing to handle LabelCategory from different modules.
-        """
-        normalized = []
-        for cat in categories:
-            if isinstance(cat, LabelCategory):
-                normalized.append(cat)
-            elif isinstance(cat, dict):
-                normalized.append(LabelCategory.from_dict(cat))
-            elif isinstance(cat, str):
-                # Backward compatibility: treat string as name with empty description
-                normalized.append(LabelCategory(name=cat, description=""))
-            elif hasattr(cat, 'name') and hasattr(cat, 'description'):
-                # Duck typing: any object with name and description attributes
-                # This handles LabelCategory from data_cleaning_service.py
-                normalized.append(LabelCategory(name=cat.name, description=cat.description))
-            else:
-                logger.warning(f"Unknown category format: {type(cat)}, skipping")
-        return normalized
 
     def label_post(
         self,
         post: Dict[str, Any],
-        categories: List[Any],  # Accepts LabelCategory, dict, or str for backward compatibility
-        mode: LabelingMode = LabelingMode.COVER_IMAGE,
-        user_prompt: str = "Classify this image into one of the categories below."
+        user_description: str,
+        mode: LabelingMode = LabelingMode.COVER_IMAGE
     ) -> LabelingResult:
         """
-        Label a single XHS post using Gemini 2.0 Flash.
+        Label a single XHS post using Gemini 2.0 Flash with binary classification.
 
         Args:
             post: XHS post dictionary (must have note_id)
-            categories: List of LabelCategory objects, dicts with name/description, or strings
+            user_description: User's description of what posts they want to filter
             mode: Labeling mode (what to analyze)
-            user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
 
         Returns:
-            LabelingResult with labels, confidence, and reasoning
+            LabelingResult with label (是/不是), style_label, and reasoning
         """
         note_id = post.get("note_id", "unknown")
 
         try:
-            # Normalize categories to LabelCategory format
-            normalized_categories = self._normalize_categories(categories)
-
-            # Build the TRANSPARENT prompt - user's prompt + categories + JSON format
-            full_prompt = self._build_prompt(normalized_categories, user_prompt)
+            # Build the prompt with binary classification and style labeling
+            full_prompt = self._build_prompt(user_description)
 
             # Prepare content parts
             content_parts = self._prepare_content_parts(post, mode, full_prompt)
@@ -348,34 +317,25 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
 
             result_json = self._parse_json_response(response_text)
 
-            # Flexibly extract labels - support multiple formats
-            labels = {}
-            if "labels" in result_json:
-                # Format: {"labels": {"cover_image_label": "..."}} or {"labels": "..."}
-                if isinstance(result_json["labels"], dict):
-                    labels = result_json["labels"]
-                else:
-                    labels = {"label": result_json["labels"]}
-            elif "label" in result_json:
-                # Format: {"label": "..."}
-                labels = {"label": result_json["label"]}
-            elif "category" in result_json:
-                # Format: {"category": "..."}
-                labels = {"label": result_json["category"]}
+            # Extract label (是/否)
+            label = result_json.get("label", "否")
+            if label not in ["是", "否"]:
+                logger.warning(f"Invalid label '{label}' for {note_id}, defaulting to '否'")
+                label = "否"
 
-            # Extract confidence (default to 0.8 if not provided)
-            confidence = float(result_json.get("confidence", 0.8))
-            # Normalize if 0-100 scale
-            if confidence > 1.0:
-                confidence = confidence / 100.0
+            # Extract style_label (特写图/环境图/拼接图/信息图)
+            style_label = result_json.get("style_label", "特写图")
+            if style_label not in STYLE_CATEGORIES:
+                logger.warning(f"Invalid style_label '{style_label}' for {note_id}, defaulting to '特写图'")
+                style_label = "特写图"
 
-            # Extract reasoning (optional)
-            reasoning = result_json.get("reasoning", result_json.get("explanation", ""))
+            # Extract reasoning
+            reasoning = result_json.get("reasoning", "")
 
             return LabelingResult(
                 note_id=note_id,
-                labels=labels,
-                confidence=confidence,
+                label=label,
+                style_label=style_label,
                 reasoning=reasoning
             )
 
@@ -401,8 +361,8 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
 
             return LabelingResult(
                 note_id=note_id,
-                labels={},
-                confidence=0.0,
+                label="否",
+                style_label="特写图",
                 reasoning="",
                 error=error_str
             )
@@ -410,20 +370,18 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
     def label_posts_batch(
         self,
         posts: List[Dict[str, Any]],
-        categories: List[Any],  # Accepts LabelCategory, dict, or str for backward compatibility
+        user_description: str,
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
-        user_prompt: str = "Classify this image into one of the categories below.",
         max_posts: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None
     ) -> List[LabelingResult]:
         """
-        Label multiple XHS posts in batch.
+        Label multiple XHS posts in batch with binary classification.
 
         Args:
             posts: List of XHS post dictionaries
-            categories: List of LabelCategory objects, dicts with name/description, or strings
+            user_description: User's description of what posts they want to filter
             mode: Labeling mode (what to analyze)
-            user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
             max_posts: Maximum number of posts to process (None = all)
             progress_callback: Optional callback(index, total, title, status) for progress updates
 
@@ -446,13 +404,13 @@ IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
                 progress_callback(idx + 1, total, title, "processing")
 
             try:
-                result = self.label_post(post, categories, mode, user_prompt)
+                result = self.label_post(post, user_description, mode)
                 results.append(result)
 
                 # Report progress: completed this post
                 if progress_callback:
                     status = "error" if result.error else "done"
-                    label_info = list(result.labels.values())[0] if result.labels else "no label"
+                    label_info = f"{result.label} ({result.style_label})"
                     progress_callback(idx + 1, total, title, f"{status}: {label_info}")
 
             except RateLimitError as e:

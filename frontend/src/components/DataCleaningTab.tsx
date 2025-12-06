@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 2.7 - Added rate_limited status handling for Gemini API quota
-// Changes: Handle rate_limited status in polling, stop task and show warning
-// Previous: Fix SSE log subscription timing issue
+// Version: 2.8 - UI localization to Chinese
+// Changes: All labels and messages translated to Chinese
+// Previous: Added rate_limited status handling for Gemini API quota
 
 'use client';
 
@@ -62,11 +62,9 @@ export default function DataCleaningTab() {
           enabled: backendTask.config.labelBy.enabled,
           imageTarget: backendTask.config.labelBy.imageTarget as 'cover_image' | 'images' | null,
           textTarget: backendTask.config.labelBy.textTarget as 'title' | 'content' | null,
-          labelCount: backendTask.config.labelBy.labelCount,
-          labels: backendTask.config.labelBy.labels,
-          prompt: backendTask.config.labelBy.prompt,
+          userDescription: backendTask.config.labelBy.userDescription,
+          fullPrompt: backendTask.config.labelBy.fullPrompt,
         },
-        unifiedPrompt: backendTask.config.unifiedPrompt,
       },
       status: backendTask.status,
       startedAt: backendTask.started_at ? new Date(backendTask.started_at) : undefined,
@@ -226,15 +224,6 @@ export default function DataCleaningTab() {
     // Clear selection after submission
     setSelectedFiles([]);
 
-    // Build the cleaning request for the backend
-    // Filter labels to only include entries with non-empty names
-    const filteredLabels = task.config.labelBy.labels
-      .filter(l => l.name.trim().length > 0)
-      .map(l => ({
-        name: l.name.trim(),
-        description: l.description.trim(),
-      }));
-
     // Build frontend_config for persistent storage on backend
     const frontendConfig: CleaningConfigStored = {
       filterBy: {
@@ -247,11 +236,9 @@ export default function DataCleaningTab() {
         enabled: task.config.labelBy.enabled,
         imageTarget: task.config.labelBy.imageTarget,
         textTarget: task.config.labelBy.textTarget,
-        labelCount: task.config.labelBy.labelCount,
-        labels: task.config.labelBy.labels,
-        prompt: task.config.labelBy.prompt,
+        userDescription: task.config.labelBy.userDescription,
+        fullPrompt: task.config.labelBy.fullPrompt,
       },
-      unifiedPrompt: task.config.unifiedPrompt,
     };
 
     const request: CleaningRequest = {
@@ -264,8 +251,8 @@ export default function DataCleaningTab() {
       label_by: task.config.labelBy.enabled ? {
         image_target: task.config.labelBy.imageTarget,
         text_target: task.config.labelBy.textTarget,
-        categories: filteredLabels,  // Now sends array of {name, description} objects
-        prompt: task.config.unifiedPrompt,  // Use the output format prompt
+        user_description: task.config.labelBy.userDescription,
+        full_prompt: task.config.labelBy.fullPrompt,
       } : null,
       // Add frontend task ID and config for persistent storage
       frontend_task_id: task.id,
@@ -339,9 +326,8 @@ export default function DataCleaningTab() {
             ? {
                 imageTarget: data.metadata.label_by_condition.image_target,
                 textTarget: data.metadata.label_by_condition.text_target,
-                labelCount: data.metadata.label_by_condition.categories?.length || 0,
-                prompt: data.metadata.label_by_condition.prompt,
-                categories: data.metadata.label_by_condition.categories,  // Pass categories for filter dropdown
+                userDescription: data.metadata.label_by_condition.user_description,
+                fullPrompt: data.metadata.label_by_condition.full_prompt,
               }
             : undefined,
           originalFiles: data.metadata.original_files,
@@ -378,17 +364,17 @@ export default function DataCleaningTab() {
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-mono font-semibold text-stone-50 tracking-tight">Data Laundry</h2>
+            <h2 className="text-lg font-mono font-semibold text-stone-50 tracking-tight">数据清洗</h2>
             <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">
-              Clean and label your scraped data using AI. Select JSON files, configure filters and labels,
-              then send them through the Spin Cycle for processing.
+              使用 AI 清洗和标注采集的数据。选择 JSON 文件，配置筛选条件和标签，
+              然后发送到清洗队列进行处理。
             </p>
           </div>
           {activeTasks.length > 0 && (
             <div className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-[rgba(217,119,87,0.15)] border border-[rgba(217,119,87,0.25)] rounded-lg">
               <div className="w-2 h-2 bg-[#D97757] rounded-full animate-pulse" />
               <span className="text-sm font-mono text-[#E8A090]">
-                {activeTasks.length} task{activeTasks.length > 1 ? 's' : ''} running
+                {activeTasks.length} 个任务运行中
               </span>
             </div>
           )}

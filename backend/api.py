@@ -1,7 +1,11 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 3.0 - Added rate limit handling for Gemini API (429 auto-pause)
-# Changes: Catch RateLimitError and mark tasks as rate_limited with warning message
-# Previous: Added SSE streaming logs for cleaning tasks
+# Version: 3.2 - Fixed hot-reload hanging issue with SSE connections
+# Changes:
+# - Reduced SSE timeout periods from 30s/5s/1s to 2s/1s/0.5s for faster shutdown detection
+# - Added immediate shutdown checks after queue.get() operations in all SSE endpoints
+# - Reduced browser close timeout from 5s to 2s during shutdown for faster hot-reload
+# - Added 0.5s timeout for background task cancellation to prevent hanging
+# Previous: Food industry refactor with binary classification and style labels
 
 import os
 import json
@@ -39,7 +43,6 @@ from data_cleaning_service import (
     CleaningConfig,
     FilterByCondition,
     LabelByCondition,
-    LabelCategory,
     RateLimitError,
     CLEANED_OUTPUT_DIR
 )
@@ -107,17 +110,12 @@ class FilterByRequest(BaseModel):
     value: int
 
 
-class LabelCategoryRequest(BaseModel):
-    """Label category with name (for output) and description (for AI inference criteria)"""
-    name: str
-    description: str = ""  # Optional but recommended
-
-
 class LabelByRequest(BaseModel):
+    """Request model for labeling: binary classification (是/否) + style labeling (4 fixed categories)"""
     image_target: Optional[Literal["cover_image", "images"]] = None
     text_target: Optional[Literal["title", "content"]] = None
-    categories: List[LabelCategoryRequest]  # Now accepts objects with name/description
-    prompt: str
+    user_description: str  # User's description of what posts they want to filter (for binary classification)
+    full_prompt: str  # Complete prompt that will be sent to Gemini (for transparency)
 
 
 # Persistent task storage models - defined before CleaningRequest which references them
@@ -129,27 +127,19 @@ class FilterByConfigStored(BaseModel):
     value: int = 0
 
 
-class LabelDefinitionStored(BaseModel):
-    """Stored label definition"""
-    name: str
-    description: str = ""
-
-
 class LabelByConfigStored(BaseModel):
     """Stored label config for persistent task data"""
     enabled: bool = False
     imageTarget: Optional[str] = None
     textTarget: Optional[str] = None
-    labelCount: int = 2
-    labels: List[LabelDefinitionStored] = []
-    prompt: str = ""
+    userDescription: str = ""  # User's description of desired posts (for binary classification)
+    fullPrompt: str = ""  # Complete prompt sent to Gemini
 
 
 class CleaningConfigStored(BaseModel):
     """Stored cleaning config for persistent task data"""
     filterBy: FilterByConfigStored
     labelBy: LabelByConfigStored
-    unifiedPrompt: str = ""
 
 
 class CleaningRequest(BaseModel):
@@ -347,27 +337,38 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
+    # Shutdown - optimized for fast hot-reload
     print("Shutting down XHS Scraper API...")
 
-    # Signal all SSE connections and background tasks to stop
+    # Signal all SSE connections and background tasks to stop immediately
     shutdown_event.set()
 
-    # Cancel all tracked background tasks
+    # Give SSE connections a moment to detect shutdown and close gracefully
+    await asyncio.sleep(0.1)
+
+    # Cancel all tracked background tasks with short timeout
     if background_tasks:
         print(f"Cancelling {len(background_tasks)} background tasks...")
         for task in background_tasks:
-            task.cancel()
-        # Wait briefly for tasks to acknowledge cancellation
-        await asyncio.gather(*background_tasks, return_exceptions=True)
+            if not task.done():
+                task.cancel()
+        # Wait briefly for tasks to cancel (max 0.5s)
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*background_tasks, return_exceptions=True),
+                timeout=0.5
+            )
+        except asyncio.TimeoutError:
+            print("Background tasks cancellation timed out, forcing shutdown...")
         background_tasks.clear()
 
-    # Cancel any active scrapes
+    # Cancel any active scrapes quickly
     if scrape_manager:
         active_scrapes = scrape_manager.get_all_active()
         for task_id in active_scrapes:
             scrape_manager.cancel_scrape(task_id)
 
+    # Fast browser shutdown with reduced timeout for hot-reload
     await browser_manager.stop()
 
     # Close database connection
@@ -655,8 +656,11 @@ async def browser_events():
 
             while not (shutdown_event and shutdown_event.is_set()):
                 try:
-                    # Wait for events with timeout for keepalive
-                    event = await asyncio.wait_for(client_queue.get(), timeout=30.0)
+                    # Shorter timeout for faster shutdown detection during hot-reload
+                    event = await asyncio.wait_for(client_queue.get(), timeout=2.0)
+                    # Check shutdown immediately after getting event
+                    if shutdown_event and shutdown_event.is_set():
+                        break
                     yield f"data: {json.dumps({'type': event.event_type, 'account_id': event.account_id, 'timestamp': event.timestamp})}\n\n"
                 except asyncio.TimeoutError:
                     # Send keepalive to prevent connection timeout
@@ -783,8 +787,11 @@ async def scrape_logs(task_id: str):
             # Stream logs until task completes or shutdown
             while not (shutdown_event and shutdown_event.is_set()):
                 try:
-                    # Wait for log message with timeout
-                    message = await asyncio.wait_for(log_queue.get(), timeout=1.0)
+                    # Shorter timeout for faster shutdown detection
+                    message = await asyncio.wait_for(log_queue.get(), timeout=0.5)
+                    # Check shutdown immediately after getting message
+                    if shutdown_event and shutdown_event.is_set():
+                        break
                     yield f"data: {json.dumps({'type': 'log', 'message': message})}\n\n"
                 except asyncio.TimeoutError:
                     # Send keepalive
@@ -796,6 +803,8 @@ async def scrape_logs(task_id: str):
                     yield f"data: {json.dumps({'type': 'status', 'status': current_scrape.status})}\n\n"
                     break
 
+        except asyncio.CancelledError:
+            pass
         finally:
             # Cleanup
             scrape_manager.remove_log_callback(task_id, queue_callback)
@@ -920,17 +929,13 @@ async def start_cleaning(request: CleaningRequest):
             value=request.filter_by.value
         )
 
-    # Add label if provided - convert Pydantic models to dataclasses
+    # Add label if provided
     if request.label_by:
-        label_categories = [
-            LabelCategory(name=cat.name, description=cat.description)
-            for cat in request.label_by.categories
-        ]
         config.label_by = LabelByCondition(
             image_target=request.label_by.image_target,
             text_target=request.label_by.text_target,
-            categories=label_categories,
-            prompt=request.label_by.prompt
+            user_description=request.label_by.user_description,
+            full_prompt=request.label_by.full_prompt
         )
 
     # Run cleaning in background task
@@ -1099,13 +1104,19 @@ async def cleaning_logs(task_id: str):
             # Send log history (for late subscribers)
             history = get_cleaning_log_history(task_id)
             for msg in history:
+                # Check shutdown before sending each history message
+                if shutdown_event and shutdown_event.is_set():
+                    break
                 yield f"data: {json.dumps({'type': 'log', 'message': msg})}\n\n"
 
             # Stream new logs until task completes or shutdown
             while not (shutdown_event and shutdown_event.is_set()):
                 try:
-                    # Wait for log message with timeout
-                    message = await asyncio.wait_for(log_queue.get(), timeout=5.0)
+                    # Shorter timeout for faster shutdown detection
+                    message = await asyncio.wait_for(log_queue.get(), timeout=1.0)
+                    # Check shutdown immediately after getting message
+                    if shutdown_event and shutdown_event.is_set():
+                        break
                     yield f"data: {json.dumps({'type': 'log', 'message': message})}\n\n"
 
                     # Check if task completed

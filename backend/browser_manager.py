@@ -1,7 +1,7 @@
 # Browser manager for XHS multi-account system
-# Version: 1.4 - Fixed browser duration tracking bug where 0-second durations were skipped
-# Changes: Changed duration_seconds check from truthiness to is not None
-# Previous: Added database tracking for browser sessions and usage stats
+# Version: 1.5 - Reduced browser close timeout for faster hot-reload
+# Changes: Browser stop() now uses 2s timeout instead of 5s for faster shutdown during hot-reload
+# Previous: Fixed browser duration tracking bug where 0-second durations were skipped
 
 import asyncio
 import subprocess
@@ -37,9 +37,9 @@ class BrowserManager:
 
     async def stop(self):
         """Close all browsers and stop Playwright"""
-        # Close all contexts
+        # Close all contexts with reduced timeout for hot-reload
         for account_id in list(self.contexts.keys()):
-            await self.close_browser(account_id)
+            await self.close_browser(account_id, timeout=2.0)
 
         # Stop Playwright
         if self.playwright:
