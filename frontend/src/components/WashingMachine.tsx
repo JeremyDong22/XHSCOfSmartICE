@@ -1,7 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 4.4 - Complete UI localization to Chinese
-// Changes: Translated Cover Image -> 帖子封面, Title -> 帖子标题, and other remaining English text
-// Previous: UI localization to Chinese
+// Version: 4.5 - Remove AI label checkbox, rename to AI清洗
+// Changes: labelBy.enabled always true (no checkbox), "AI 标签" -> "AI 清洗"
+// Previous: Complete UI localization to Chinese
 
 'use client';
 
@@ -53,9 +53,9 @@ export default function WashingMachine({
   onTaskSubmit,
   disabled = false,
 }: WashingMachineProps) {
-  // Label By state - simplified to user description only
+  // Label By state - always enabled (AI cleaning is required)
   const [labelBy, setLabelBy] = useState<LabelByConfig>({
-    enabled: false,
+    enabled: true,
     imageTarget: null,
     textTarget: null,
     userDescription: '',
@@ -97,10 +97,10 @@ Output your analysis in this exact JSON format:
     });
   };
 
-  // Validation
+  // Validation - labelBy.enabled is always true, no need to check
   const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null;
   const hasUserDescription = labelBy.userDescription.trim().length > 0;
-  const isValid = selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget && hasUserDescription;
+  const isValid = selectedFiles.length > 0 && hasAtLeastOneTarget && hasUserDescription;
 
   // Generate task and submit
   const handleSubmit = () => {
@@ -150,26 +150,16 @@ Output your analysis in this exact JSON format:
 
       {/* Main content - scrollable */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
-        {/* LABEL BY Section */}
+        {/* AI Cleaning Section - always enabled */}
         <section>
           <div className="flex items-center gap-3 mb-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={labelBy.enabled}
-                onChange={(e) => setLabelBy({ ...labelBy, enabled: e.target.checked })}
-                className="flex-shrink-0"
-              />
-              <span className="text-sm font-medium text-stone-200">AI 标签</span>
-            </label>
-            <span className="text-xs text-stone-500">使用 AI 为帖子自动生成标签</span>
+            <span className="text-sm font-medium text-stone-200">AI 清洗</span>
+            <span className="text-xs text-stone-500">使用 AI 分析并清洗帖子数据</span>
           </div>
 
-          <div className={`p-4 bg-stone-900 rounded-lg border transition-all ${
-            labelBy.enabled ? 'border-[rgba(217,119,87,0.3)]' : 'border-stone-700 opacity-50'
-          }`}>
+          <div className="p-4 bg-stone-900 rounded-lg border border-[rgba(217,119,87,0.3)] transition-all">
             {/* Selection indicator */}
-            {labelBy.enabled && hasAtLeastOneTarget && (
+            {hasAtLeastOneTarget && (
               <div className="mb-4 px-3 py-2 bg-stone-800 rounded-lg border border-[rgba(217,119,87,0.2)]">
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-stone-500">已选择:</span>
@@ -198,12 +188,11 @@ Output your analysis in this exact JSON format:
                       ...labelBy,
                       imageTarget: labelBy.imageTarget === option.value ? null : option.value,
                     })}
-                    disabled={!labelBy.enabled}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                       labelBy.imageTarget === option.value
                         ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
                         : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
-                    } disabled:opacity-50`}
+                    }`}
                   >
                     {option.label}
                   </button>
@@ -224,12 +213,11 @@ Output your analysis in this exact JSON format:
                       ...labelBy,
                       textTarget: labelBy.textTarget === option.value ? null : option.value,
                     })}
-                    disabled={!labelBy.enabled}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
                       labelBy.textTarget === option.value
                         ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
                         : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
-                    } disabled:opacity-50`}
+                    }`}
                   >
                     {option.label}
                   </button>
@@ -245,16 +233,15 @@ Output your analysis in this exact JSON format:
               <textarea
                 value={labelBy.userDescription}
                 onChange={(e) => handleUserDescriptionChange(e.target.value)}
-                disabled={!labelBy.enabled}
                 rows={3}
                 placeholder="例如：图片中只有一份甜品的帖子"
-                className={`w-full px-3 py-2 bg-stone-800 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors resize-none ${
+                className={`w-full px-3 py-2 bg-stone-800 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 transition-colors resize-none ${
                   hasUserDescription
                     ? 'border-[rgba(16,185,129,0.3)]'
                     : 'border-stone-700'
                 }`}
               />
-              {labelBy.enabled && !hasUserDescription && (
+              {!hasUserDescription && (
                 <p className="mt-2 text-xs text-amber-400/70">
                   请输入帖子特征描述
                 </p>
@@ -264,7 +251,7 @@ Output your analysis in this exact JSON format:
         </section>
 
         {/* Debug: Prompt preview */}
-        {labelBy.enabled && hasUserDescription && (
+        {hasUserDescription && (
           <section className="-mt-2">
             <button
               onClick={() => setIsPromptExpanded(!isPromptExpanded)}
@@ -321,17 +308,12 @@ Output your analysis in this exact JSON format:
             请从左侧面板选择文件
           </p>
         )}
-        {!isValid && selectedFiles.length > 0 && !labelBy.enabled && (
-          <p className="mt-2 text-xs text-center text-stone-500">
-            请启用 AI 标签以开始清洗
-          </p>
-        )}
-        {!isValid && selectedFiles.length > 0 && labelBy.enabled && !hasAtLeastOneTarget && (
+        {!isValid && selectedFiles.length > 0 && !hasAtLeastOneTarget && (
           <p className="mt-2 text-xs text-center text-stone-500">
             请至少选择一个分析目标（图片或文本）
           </p>
         )}
-        {!isValid && selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget && !hasUserDescription && (
+        {!isValid && selectedFiles.length > 0 && hasAtLeastOneTarget && !hasUserDescription && (
           <p className="mt-2 text-xs text-center text-amber-400/70">
             请描述你想筛选的帖子特征
           </p>
