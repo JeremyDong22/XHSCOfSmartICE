@@ -1,6 +1,7 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.4 - Improved slider UX
-// Changes: Step changed from 5 to 1 for smooth sliding, min changed to 1
+// Version: 3.5 - Increased max posts limit to 2000
+// Changes: Max posts slider now allows up to 2000 posts per account per session
+// Previous: Step changed from 5 to 1 for smooth sliding, min changed to 1
 
 'use client';
 
@@ -136,12 +137,12 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
               id="max-posts-slider"
               type="range"
               min={1}
-              max={100}
+              max={2000}
               step={1}
               value={maxPosts}
               onChange={(e) => setMaxPosts(Number(e.target.value))}
               aria-valuemin={1}
-              aria-valuemax={100}
+              aria-valuemax={2000}
               aria-valuenow={maxPosts}
               className="w-full cursor-pointer"
             />
