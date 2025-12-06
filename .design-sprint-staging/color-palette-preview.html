@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>XHS Dashboard - Softer Dark Mode (Anthropic Style)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1C1917;
+      color: #FAFAF9;
+      padding: 48px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 32px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: #78716C;
+      margin-bottom: 48px;
+    }
+
+    .section {
+      margin-bottom: 48px;
+    }
+
+    .section-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #78716C;
+      margin-bottom: 16px;
+    }
+
+    .palette-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .color-card {
+      width: 180px;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #292524;
+      border: 1px solid #3D3835;
+    }
+
+    .color-swatch {
+      height: 100px;
+      display: flex;
+      align-items: flex-end;
+      padding: 12px;
+    }
+
+    .color-info {
+      padding: 12px;
+    }
+
+    .color-name {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 4px;
+      color: #E7E5E4;
+    }
+
+    .color-hex {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #78716C;
+    }
+
+    .preview-section {
+      background: #292524;
+      border-radius: 16px;
+      padding: 32px;
+      border: 1px solid #3D3835;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+
+    .btn-primary {
+      background: #D97757;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #E8886A;
+    }
+
+    .btn-secondary {
+      background: #3D3835;
+      color: #E7E5E4;
+      border: 1px solid #57534E;
+    }
+
+    .btn-secondary:hover {
+      background: #57534E;
+    }
+
+    .btn-success {
+      background: rgba(16, 185, 129, 0.2);
+      color: #6EE7B7;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.2);
+      color: #FCA5A5;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-info {
+      background: rgba(59, 130, 246, 0.2);
+      color: #93C5FD;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-warning {
+      background: rgba(245, 158, 11, 0.2);
+      color: #FCD34D;
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    .sample-card {
+      background: #1C1917;
+      border: 1px solid #3D3835;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 24px;
+    }
+
+    .sample-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .sample-card-title {
+      font-weight: 600;
+      font-size: 16px;
+      color: #FAFAF9;
+    }
+
+    .status-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #6EE7B7;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .status-badge-accent {
+      background: rgba(217, 119, 87, 0.15);
+      color: #E8A090;
+      border: 1px solid rgba(217, 119, 87, 0.25);
+    }
+
+    .status-badge-inactive {
+      background: rgba(120, 113, 108, 0.15);
+      color: #A8A29E;
+      border: 1px solid rgba(120, 113, 108, 0.25);
+    }
+
+    .sample-card-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #78716C;
+    }
+
+    .typography-sample {
+      margin-top: 24px;
+    }
+
+    .type-heading {
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+      color: #FAFAF9;
+    }
+
+    .type-body {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #A8A29E;
+      max-width: 600px;
+    }
+
+    .type-mono {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: #78716C;
+      margin-top: 12px;
+    }
+
+    .type-accent {
+      color: #D97757;
+    }
+
+    .inspiration-note {
+      margin-top: 48px;
+      padding: 24px;
+      background: rgba(217, 119, 87, 0.1);
+      border-radius: 12px;
+      border-left: 4px solid #D97757;
+    }
+
+    .inspiration-note h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #D97757;
+    }
+
+    .inspiration-note p {
+      font-size: 14px;
+      color: #A8A29E;
+      line-height: 1.5;
+    }
+
+    .console-preview {
+      background: #000000;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 24px;
+      border: 1px solid #292524;
+    }
+
+    .console-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      margin: 4px 0;
+    }
+
+    .log-info { color: #93C5FD; }
+    .log-success { color: #6EE7B7; }
+    .log-warning { color: #FCD34D; }
+    .log-error { color: #FCA5A5; }
+    .log-muted { color: #78716C; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .stat-card {
+      background: #1C1917;
+      border: 1px solid #3D3835;
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 24px;
+      font-weight: 600;
+      color: #FAFAF9;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #78716C;
+      margin-top: 4px;
+    }
+
+    .stat-card-success .stat-value { color: #6EE7B7; }
+    .stat-card-info .stat-value { color: #93C5FD; }
+    .stat-card-warning .stat-value { color: #FCD34D; }
+    .stat-card-accent .stat-value { color: #D97757; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>XHS Dashboard - Softer Dark Mode</h1>
+    <p class="subtitle">Anthropic-inspired theme with warmer, less harsh backgrounds</p>
+
+    <!-- Background Colors -->
+    <div class="section">
+      <div class="section-title">Backgrounds (Warmer, Softer)</div>
+      <div class="palette-row">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #1C1917;">
+            <span style="color: #78716C; font-size: 12px;">Base</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Stone 900</div>
+            <div class="color-hex">#1C1917</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #292524;">
+            <span style="color: #78716C; font-size: 12px;">Surface</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Stone 800</div>
+            <div class="color-hex">#292524</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #3D3835;">
+            <span style="color: #A8A29E; font-size: 12px;">Border</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Stone 700</div>
+            <div class="color-hex">#3D3835</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #57534E;">
+            <span style="color: #E7E5E4; font-size: 12px;">Hover</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Stone 600</div>
+            <div class="color-hex">#57534E</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Primary Colors -->
+    <div class="section">
+      <div class="section-title">Primary / Accent</div>
+      <div class="palette-row">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #D97757;">
+            <span style="color: white; font-size: 12px;">Primary</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Terracotta</div>
+            <div class="color-hex">#D97757</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #E8886A;"></div>
+          <div class="color-info">
+            <div class="color-name">Terracotta Light</div>
+            <div class="color-hex">#E8886A</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(217, 119, 87, 0.15);"></div>
+          <div class="color-info">
+            <div class="color-name">Terracotta Muted</div>
+            <div class="color-hex">rgba(217,119,87,0.15)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Text Colors -->
+    <div class="section">
+      <div class="section-title">Text</div>
+      <div class="palette-row">
+        <div class="color-card">
+          <div class="color-swatch" style="background: #FAFAF9;">
+            <span style="color: #1C1917; font-size: 12px;">Primary</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Text Primary</div>
+            <div class="color-hex">#FAFAF9</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #E7E5E4;"></div>
+          <div class="color-info">
+            <div class="color-name">Text Strong</div>
+            <div class="color-hex">#E7E5E4</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #A8A29E;"></div>
+          <div class="color-info">
+            <div class="color-name">Text Secondary</div>
+            <div class="color-hex">#A8A29E</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: #78716C;"></div>
+          <div class="color-info">
+            <div class="color-name">Text Muted</div>
+            <div class="color-hex">#78716C</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Muted Semantic Colors -->
+    <div class="section">
+      <div class="section-title">Semantic (Muted / Faded)</div>
+      <div class="palette-row">
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.3);">
+            <span style="color: #6EE7B7; font-size: 12px;">Success</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Success Muted</div>
+            <div class="color-hex">#6EE7B7 @ 20%</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.3);">
+            <span style="color: #FCA5A5; font-size: 12px;">Error</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Error Muted</div>
+            <div class="color-hex">#FCA5A5 @ 20%</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.3);">
+            <span style="color: #93C5FD; font-size: 12px;">Info</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Info Muted</div>
+            <div class="color-hex">#93C5FD @ 20%</div>
+          </div>
+        </div>
+        <div class="color-card">
+          <div class="color-swatch" style="background: rgba(245, 158, 11, 0.2); border: 1px solid rgba(245, 158, 11, 0.3);">
+            <span style="color: #FCD34D; font-size: 12px;">Warning</span>
+          </div>
+          <div class="color-info">
+            <div class="color-name">Warning Muted</div>
+            <div class="color-hex">#FCD34D @ 20%</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- UI Preview -->
+    <div class="section">
+      <div class="section-title">Dashboard Preview</div>
+      <div class="preview-section">
+        <div class="typography-sample">
+          <div class="type-heading">XHS Multi-Account Scraper</div>
+          <p class="type-body">
+            A clean, minimal dashboard for managing Xiaohongshu accounts and scraping posts.
+            Built with a softer dark theme inspired by <span class="type-accent">Anthropic's design language</span>.
+          </p>
+        </div>
+
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+          <div class="stat-card stat-card-success">
+            <div class="stat-value">5</div>
+            <div class="stat-label">Active Accounts</div>
+          </div>
+          <div class="stat-card stat-card-info">
+            <div class="stat-value">3</div>
+            <div class="stat-label">Open Browsers</div>
+          </div>
+          <div class="stat-card stat-card-accent">
+            <div class="stat-value">1,247</div>
+            <div class="stat-label">Posts Scraped</div>
+          </div>
+          <div class="stat-card stat-card-warning">
+            <div class="stat-value">2</div>
+            <div class="stat-label">Tasks Running</div>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button class="btn btn-primary">Start Scraping</button>
+          <button class="btn btn-secondary">Open Browser</button>
+          <button class="btn btn-success">Connected</button>
+          <button class="btn btn-danger">Stop</button>
+          <button class="btn btn-info">View Logs</button>
+          <button class="btn btn-warning">Pending</button>
+        </div>
+
+        <!-- Account Cards -->
+        <div class="sample-card">
+          <div class="sample-card-header">
+            <span class="sample-card-title">Account 3</span>
+            <span class="status-badge">ACTIVE</span>
+          </div>
+          <div class="sample-card-meta">Last scraped: 2 hours ago | 847 posts collected</div>
+        </div>
+
+        <div class="sample-card">
+          <div class="sample-card-header">
+            <span class="sample-card-title">Account 5</span>
+            <span class="status-badge status-badge-accent">SCRAPING</span>
+          </div>
+          <div class="sample-card-meta">Current task: "绵阳美食" | 23/50 posts</div>
+        </div>
+
+        <div class="sample-card">
+          <div class="sample-card-header">
+            <span class="sample-card-title">Account 7</span>
+            <span class="status-badge status-badge-inactive">OFFLINE</span>
+          </div>
+          <div class="sample-card-meta">Browser closed | No recent activity</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Console Preview -->
+    <div class="section">
+      <div class="section-title">Console / Log Output</div>
+      <div class="console-preview">
+        <div class="console-line log-muted">[12:34:56]</div>
+        <div class="console-line log-info">[INFO] Starting scrape for keyword: 绵阳美食</div>
+        <div class="console-line log-muted">[12:34:57]</div>
+        <div class="console-line log-info">[INFO] Found 50 posts matching criteria</div>
+        <div class="console-line log-muted">[12:34:58]</div>
+        <div class="console-line log-success">[SUCCESS] Scraped post 1/50: https://xhs.com/note/abc123</div>
+        <div class="console-line log-muted">[12:34:59]</div>
+        <div class="console-line log-warning">[WARN] Rate limit approaching, slowing down...</div>
+        <div class="console-line log-muted">[12:35:00]</div>
+        <div class="console-line log-error">[ERROR] Failed to load page, retrying...</div>
+      </div>
+    </div>
+
+    <div class="inspiration-note">
+      <h3>Softer Dark Mode Philosophy</h3>
+      <p>
+        This version uses Tailwind's Stone palette for warmer, less harsh dark backgrounds:
+        Stone 900 (#1C1917) as base, Stone 800 (#292524) for elevated surfaces.
+        The warm undertones reduce eye strain while maintaining the sophisticated Anthropic aesthetic.
+        Terracotta (#D97757) remains the signature accent color.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
