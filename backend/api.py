@@ -223,10 +223,14 @@ async def delete_account(account_id: int):
     # Close browser first if open
     if browser_manager.is_browser_open(account_id):
         await browser_manager.close_browser(account_id)
+        await browser_event_manager.notify_browser_closed(account_id)
 
     success = account_manager.delete_account(account_id)
     if not success:
         raise HTTPException(status_code=404, detail="Account not found")
+
+    # Broadcast account deleted event
+    await browser_event_manager.notify_account_deleted(account_id)
 
     return {"success": True}
 
@@ -346,6 +350,47 @@ async def open_all_browsers():
     """Open browsers for all active accounts"""
     await browser_manager.open_all_active_accounts()
     return {"success": True, "browsers": browser_manager.get_open_browsers()}
+
+
+@app.get("/api/browsers/events")
+async def browser_events():
+    """
+    SSE endpoint for real-time browser status updates.
+    Clients subscribe to this endpoint to receive browser state changes instantly.
+    Events: browser_opened, browser_closed, browser_login_created, account_deleted
+    """
+    async def event_generator():
+        # Register this client
+        client_queue = await browser_event_manager.add_client()
+
+        try:
+            # Send initial connection confirmation
+            yield f"data: {json.dumps({'type': 'connected', 'message': 'Subscribed to browser events'})}\n\n"
+
+            while True:
+                try:
+                    # Wait for events with timeout for keepalive
+                    event = await asyncio.wait_for(client_queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps({'type': event.event_type, 'account_id': event.account_id, 'timestamp': event.timestamp})}\n\n"
+                except asyncio.TimeoutError:
+                    # Send keepalive to prevent connection timeout
+                    yield f": keepalive\n\n"
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Unregister client on disconnect
+            await browser_event_manager.remove_client(client_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 # Scraping endpoints
