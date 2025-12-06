@@ -1,5 +1,7 @@
 // Stats panel component displaying dashboard metrics
-// Version: 2.1 - Fixed to match actual Stats interface from API
+// Version: 2.2 - Removed loading skeleton to prevent flash on page switch
+// Changes: Always show stats with current values, no loading state UI change
+// Previous: Fixed to match actual Stats interface from API
 
 'use client';
 
@@ -12,19 +14,7 @@ interface StatsPanelProps {
 }
 
 export default function StatsPanel({ stats, loading, activeTasksCount = 0 }: StatsPanelProps) {
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="bg-stone-900 border border-stone-700 rounded-xl p-4 animate-pulse">
-            <div className="h-7 bg-stone-700 rounded w-16 mb-2"></div>
-            <div className="h-4 bg-stone-700 rounded w-24"></div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
+  // Always show stats panel without loading skeleton to prevent flash on navigation
   const statItems = [
     {
       value: stats?.total ?? 0,
