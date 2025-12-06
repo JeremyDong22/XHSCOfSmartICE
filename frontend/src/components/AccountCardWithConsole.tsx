@@ -87,7 +87,8 @@ export default function AccountCardWithConsole({
       return;
     }
 
-    const eventSource = new EventSource(`http://localhost:8000/api/scrape/logs/${activeTask.taskId}`);
+    const apiHost = window.location.hostname;
+    const eventSource = new EventSource(`http://${apiHost}:8000/api/scrape/logs/${activeTask.taskId}`);
 
     eventSource.onmessage = (event) => {
       try {

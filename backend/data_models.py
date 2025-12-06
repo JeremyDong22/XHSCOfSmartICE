@@ -1,7 +1,7 @@
 # Data models for XHS Scraper
-# Version: 1.1 - Updated for search-only scraping (no detail page clicks)
-# Changed: Removed fields not available from search cards (content, hashtags, collects, comments)
-# Added: author_avatar, author_profile_url, cover_image, card_dimensions
+# Version: 1.3 - Added skip_videos filter option
+# Changes: Added skip_videos to ScrapeFilter, updated passes() to exclude video posts when enabled
+# Previous: Added tokenized_url field (with xsec_token), is_video field for content type detection
 
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
@@ -13,9 +13,10 @@ import json
 class XHSPost:
     """Xiaohongshu post data structure - from search card extraction only"""
     note_id: str
-    permanent_url: str
-    title: str
-    author: str
+    permanent_url: str  # Legacy: URL without token (may not work in new browser)
+    tokenized_url: str = ""  # Full URL with xsec_token (works in new browser)
+    title: str = ""
+    author: str = ""
     author_avatar: str = ""
     author_profile_url: str = ""
     likes: int = 0
@@ -23,6 +24,7 @@ class XHSPost:
     publish_date: str = ""
     card_width: int = 0
     card_height: int = 0
+    is_video: bool = False  # True if this is a video post
     scraped_at: str = field(default_factory=lambda: datetime.now().isoformat())
     # Fields NOT available from search cards (kept for compatibility, always empty)
     content: str = ""
@@ -47,11 +49,15 @@ class ScrapeFilter:
     min_collects: int = 0  # IGNORED in search-only mode
     min_comments: int = 0  # IGNORED in search-only mode
     max_posts: int = 20
+    skip_videos: bool = False  # Skip video posts, keep only image posts
 
     def passes(self, post: XHSPost) -> bool:
         """Check if a post passes the filter conditions
         Note: Only likes filter works in search-only mode
         """
+        # Skip video posts if skip_videos is enabled
+        if self.skip_videos and post.is_video:
+            return False
         return post.likes >= self.min_likes
 
 

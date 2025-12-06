@@ -1,9 +1,16 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.4 - Added AccountStats interface and stats API endpoints
-// Changes: Added getAccountStats and getAllAccountsStats functions for usage tracking
-// Previous: Added XHSPost and ScrapeResultData types for visual preview
+// Version: 1.5 - Dynamic API URL for LAN access
+// Changes: API_BASE now detects hostname for LAN compatibility
+// Previous: Added getAccountStats and getAllAccountsStats functions for usage tracking
 
-const API_BASE = 'http://localhost:8000/api';
+// Dynamically determine API base URL based on current hostname
+const getApiBase = () => {
+  if (typeof window === 'undefined') return 'http://localhost:8000/api';
+  const hostname = window.location.hostname;
+  return `http://${hostname}:8000/api`;
+};
+
+const API_BASE = getApiBase();
 
 // XHS Post data structure from scrape results
 export interface XHSPost {

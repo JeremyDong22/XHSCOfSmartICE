@@ -52,6 +52,7 @@ function PostCard({ post }: { post: XHSPost }) {
                 imageLoaded ? 'opacity-100' : 'opacity-0'
               }`}
               loading="lazy"
+              referrerPolicy="no-referrer"
               onLoad={() => setImageLoaded(true)}
               onError={() => setImageError(true)}
             />
@@ -92,6 +93,7 @@ function PostCard({ post }: { post: XHSPost }) {
                 alt={post.author}
                 className="w-full h-full object-cover"
                 loading="lazy"
+                referrerPolicy="no-referrer"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
