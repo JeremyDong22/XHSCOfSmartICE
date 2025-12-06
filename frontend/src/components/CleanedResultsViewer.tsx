@@ -1,12 +1,12 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 1.4 - Removed non-functional sort options (collects/comments always 0 from search scrape)
-// Changes: Removed sort by collects and comments since scraper only gets likes from search results
-// Features: Metadata display, group by label dropdown, filter by label value, sort by likes only
+// Version: 1.8 - Applied consistent font-mono styling to headers, file size display, newest first sort
+// Changes: Step title uses font-mono, file list matches ResultsViewer styling, sorted by date
+// Features: Metadata display, filter by label dropdown, sort by likes, delete files
 
 'use client';
 
 import { useState, useMemo } from 'react';
-import { XHSPost } from '@/lib/api';
+import { XHSPost, deleteCleanedResult } from '@/lib/api';
 
 // Types for cleaned data structure
 export interface CleaningMetadata {
@@ -23,6 +23,7 @@ export interface CleaningMetadata {
     textTarget: string | null;
     labelCount: number;
     prompt: string;
+    categories?: string[];  // User-defined categories for filter dropdown
   };
   originalFiles: string[];
   totalPostsInput: number;
@@ -30,14 +31,13 @@ export interface CleaningMetadata {
 }
 
 export interface LabeledPost extends XHSPost {
+  // Labels from backend: { label: "category_name" } - simple structure from Gemini
   labels?: {
-    coverImageLabel?: string;
-    imagesLabel?: string;
-    titleLabel?: string;
-    contentLabel?: string;
-    confidence?: number;
-    reasoning?: string;
+    label?: string;  // Main label assigned by Gemini
   };
+  // Separate fields for confidence and reasoning (at post level, not nested)
+  label_confidence?: number;
+  label_reasoning?: string;
 }
 
 export interface CleanedResultData {
@@ -54,6 +54,7 @@ export interface CleanedResultFile {
 interface CleanedResultsViewerProps {
   files: CleanedResultFile[];
   onFileSelect?: (filename: string) => void;
+  onFileDeleted?: () => void;  // Callback to refresh file list after deletion
   selectedFileData?: CleanedResultData | null;
   loading?: boolean;
 }
@@ -89,6 +90,13 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+// Format file size (matching ResultsViewer)
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // Post card component with label display
 function LabeledPostCard({ post }: { post: LabeledPost }) {
   const [imageError, setImageError] = useState(false);
@@ -97,11 +105,8 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
 
-  // Get the primary label to display
-  const primaryLabel = post.labels?.coverImageLabel ||
-    post.labels?.contentLabel ||
-    post.labels?.titleLabel ||
-    post.labels?.imagesLabel;
+  // Get the primary label to display (now using simple structure from backend)
+  const primaryLabel = post.labels?.label;
 
   return (
     <a
@@ -190,20 +195,6 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
           </div>
         </div>
 
-        {/* Confidence badge if available */}
-        {post.labels?.confidence !== undefined && (
-          <div className="mt-2 flex items-center gap-2">
-            <div className="flex-1 h-1 bg-stone-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-emerald-500 rounded-full"
-                style={{ width: `${post.labels.confidence * 100}%` }}
-              />
-            </div>
-            <span className="text-xs text-stone-500">
-              {Math.round(post.labels.confidence * 100)}%
-            </span>
-          </div>
-        )}
       </div>
     </a>
   );
@@ -297,6 +288,7 @@ function MetadataSection({ metadata }: { metadata: CleaningMetadata }) {
 export default function CleanedResultsViewer({
   files,
   onFileSelect,
+  onFileDeleted,
   selectedFileData,
   loading = false,
 }: CleanedResultsViewerProps) {
@@ -304,8 +296,13 @@ export default function CleanedResultsViewer({
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [sortField, setSortField] = useState<SortField>('likes');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [groupByLabel, setGroupByLabel] = useState(false);
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string>('all');
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // Sort files by cleanedAt date (newest first)
+  const sortedFiles = useMemo(() => {
+    return [...files].sort((a, b) => b.cleanedAt.getTime() - a.cleanedAt.getTime());
+  }, [files]);
 
   // Handle file selection
   const handleFileClick = (filename: string) => {
@@ -317,15 +314,47 @@ export default function CleanedResultsViewer({
     }
   };
 
-  // Get unique labels from data
+  // Handle file deletion
+  const handleDelete = async (filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();  // Prevent file selection
+
+    const confirmed = confirm(`Are you sure you want to delete "${filename}"?\n\nThis action cannot be undone.`);
+    if (!confirmed) return;
+
+    try {
+      setDeleting(filename);
+      await deleteCleanedResult(filename);
+
+      // Clear selection if deleted file was selected
+      if (selectedFile === filename) {
+        setSelectedFile(null);
+      }
+
+      // Notify parent to refresh file list
+      onFileDeleted?.();
+    } catch (error) {
+      console.error('Failed to delete cleaned result:', error);
+      alert(error instanceof Error ? error.message : 'Failed to delete file');
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // Get categories from metadata (user-defined during labeling)
+  // Falls back to extracting unique labels from posts if metadata doesn't have categories
   const availableLabels = useMemo(() => {
-    if (!selectedFileData?.posts) return [];
+    if (!selectedFileData) return [];
+
+    // Prefer categories from metadata - these are the user-defined categories
+    if (selectedFileData.metadata?.labelByCondition?.categories?.length) {
+      return selectedFileData.metadata.labelByCondition.categories;
+    }
+
+    // Fallback: extract unique labels from posts
+    if (!selectedFileData.posts) return [];
     const labels = new Set<string>();
     selectedFileData.posts.forEach(post => {
-      const label = post.labels?.coverImageLabel ||
-        post.labels?.contentLabel ||
-        post.labels?.titleLabel ||
-        post.labels?.imagesLabel;
+      const label = post.labels?.label;
       if (label) labels.add(label);
     });
     return Array.from(labels).sort();
@@ -337,13 +366,10 @@ export default function CleanedResultsViewer({
 
     let result = [...selectedFileData.posts];
 
-    // Filter by label
+    // Filter by label (using the simple label structure from backend)
     if (selectedLabelFilter !== 'all') {
       result = result.filter(post => {
-        const label = post.labels?.coverImageLabel ||
-          post.labels?.contentLabel ||
-          post.labels?.titleLabel ||
-          post.labels?.imagesLabel;
+        const label = post.labels?.label;
         return label === selectedLabelFilter;
       });
     }
@@ -357,23 +383,6 @@ export default function CleanedResultsViewer({
 
     return result;
   }, [selectedFileData, selectedLabelFilter, sortField, sortOrder]);
-
-  // Group posts by label
-  const groupedPosts = useMemo(() => {
-    if (!groupByLabel) return null;
-
-    const groups: Record<string, LabeledPost[]> = {};
-    processedPosts.forEach(post => {
-      const label = post.labels?.coverImageLabel ||
-        post.labels?.contentLabel ||
-        post.labels?.titleLabel ||
-        post.labels?.imagesLabel ||
-        'Unlabeled';
-      if (!groups[label]) groups[label] = [];
-      groups[label].push(post);
-    });
-    return groups;
-  }, [processedPosts, groupByLabel]);
 
   if (files.length === 0) {
     return (
@@ -406,25 +415,53 @@ export default function CleanedResultsViewer({
           </div>
         </div>
 
-        {/* File list */}
-        <div className="space-y-1 max-h-[200px] overflow-y-auto">
-          {files.map((file) => (
-            <button
+        {/* File list - sorted by newest date first */}
+        <div className="space-y-2 max-h-[200px] overflow-y-auto">
+          {sortedFiles.map((file) => (
+            <div
               key={file.filename}
-              onClick={() => handleFileClick(file.filename)}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-all ${
+              className={`flex items-stretch rounded-lg transition-all ${
                 selectedFile === file.filename
                   ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)]'
                   : 'bg-stone-900 border border-stone-700 hover:border-stone-600'
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-stone-200 truncate">{file.filename}</span>
-                <span className="text-xs text-stone-500 ml-2">
-                  {file.cleanedAt.toLocaleDateString('zh-CN')}
-                </span>
-              </div>
-            </button>
+              <button
+                onClick={() => handleFileClick(file.filename)}
+                className="flex-1 text-left px-4 py-3 rounded-l-lg transition-colors"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-stone-50 truncate flex-1 text-sm">{file.filename}</span>
+                  <span className="font-mono text-xs text-stone-500 ml-4">
+                    {formatFileSize(file.size)}
+                  </span>
+                </div>
+              </button>
+              {/* Delete button */}
+              <button
+                onClick={(e) => handleDelete(file.filename, e)}
+                disabled={deleting === file.filename}
+                className="px-3 text-red-300 hover:bg-[rgba(239,68,68,0.2)] transition-colors rounded-r-lg disabled:opacity-50"
+                title="Delete file"
+              >
+                {deleting === file.filename ? (
+                  <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -520,18 +557,6 @@ export default function CleanedResultsViewer({
                   </button>
                 </div>
 
-                {/* Group by dropdown */}
-                {availableLabels.length > 0 && (
-                  <select
-                    value={groupByLabel ? 'label' : 'none'}
-                    onChange={(e) => setGroupByLabel(e.target.value === 'label')}
-                    className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-                  >
-                    <option value="none">No Grouping</option>
-                    <option value="label">Group by Label</option>
-                  </select>
-                )}
-
                 {/* Results count */}
                 <span className="text-xs text-stone-500 ml-auto">
                   {processedPosts.length} posts
@@ -541,33 +566,11 @@ export default function CleanedResultsViewer({
               {/* Posts display */}
               <div className="max-h-[600px] overflow-y-auto">
                 {viewMode === 'visual' ? (
-                  groupByLabel && groupedPosts ? (
-                    <div className="space-y-6">
-                      {Object.entries(groupedPosts).map(([label, posts]) => (
-                        <div key={label}>
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="px-2 py-1 bg-[rgba(217,119,87,0.2)] text-[#E8A090] text-xs font-medium rounded">
-                              {label}
-                            </span>
-                            <span className="text-xs text-stone-500">
-                              {posts.length} posts
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                            {posts.map((post) => (
-                              <LabeledPostCard key={post.note_id} post={post} />
-                            ))}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                      {processedPosts.map((post) => (
-                        <LabeledPostCard key={post.note_id} post={post} />
-                      ))}
-                    </div>
-                  )
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {processedPosts.map((post) => (
+                      <LabeledPostCard key={post.note_id} post={post} />
+                    ))}
+                  </div>
                 ) : (
                   <pre className="font-mono text-sm text-emerald-300 whitespace-pre-wrap bg-black rounded-lg p-4">
                     {JSON.stringify(selectedFileData, null, 2)}

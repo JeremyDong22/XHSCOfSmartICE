@@ -1,6 +1,6 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 1.8 - Pass categories to CleanedResultsViewer for label filter dropdown
-// Changes: Now passes label_by_condition.categories for the filter to use user-defined categories
+// Version: 2.0 - Applied consistent font-mono styling throughout page
+// Changes: Hero header uses font-mono for title, consistent typography across all sections
 // Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
 
 'use client';
@@ -246,7 +246,7 @@ export default function DataCleaningTab() {
   return (
     <div className="space-y-6">
       {/* Header description */}
-      <div className="bg-stone-800 rounded-xl border border-stone-700 p-4">
+      <div className="bg-stone-800 rounded-xl border border-stone-700 p-5">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#D97757] to-[#B85C3E] flex items-center justify-center flex-shrink-0">
             <svg className="w-7 h-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -258,8 +258,8 @@ export default function DataCleaningTab() {
             </svg>
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-stone-100">Data Laundry</h2>
-            <p className="text-sm text-stone-400 mt-1">
+            <h2 className="text-lg font-mono font-semibold text-stone-50 tracking-tight">Data Laundry</h2>
+            <p className="text-sm text-stone-400 mt-1.5 leading-relaxed">
               Clean and label your scraped data using AI. Select JSON files, configure filters and labels,
               then send them through the Spin Cycle for processing.
             </p>
@@ -267,7 +267,7 @@ export default function DataCleaningTab() {
           {activeTasks.length > 0 && (
             <div className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-[rgba(217,119,87,0.15)] border border-[rgba(217,119,87,0.25)] rounded-lg">
               <div className="w-2 h-2 bg-[#D97757] rounded-full animate-pulse" />
-              <span className="text-sm text-[#E8A090]">
+              <span className="text-sm font-mono text-[#E8A090]">
                 {activeTasks.length} task{activeTasks.length > 1 ? 's' : ''} running
               </span>
             </div>
@@ -308,6 +308,7 @@ export default function DataCleaningTab() {
         <CleanedResultsViewer
           files={cleanedFiles}
           onFileSelect={handleCleanedFileSelect}
+          onFileDeleted={loadCleanedResults}
           selectedFileData={selectedCleanedData}
           loading={loadingCleanedData}
         />
