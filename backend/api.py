@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 2.0 - Added cleaning task status tracking for proper frontend progress
-# Changes: Track cleaning task status (pending/processing/completed/failed), add status endpoint
-# Previous: Fixed reload hang with proper shutdown handling
+# Version: 2.2 - Fixed event loop blocking during data cleaning
+# Changes: Run synchronous clean_and_label in thread pool with asyncio.to_thread
+# Previous: LabelByRequest.categories now accepts array of {name, description} objects
 
 import os
 import json
@@ -34,6 +34,7 @@ from data_cleaning_service import (
     CleaningConfig,
     FilterByCondition,
     LabelByCondition,
+    LabelCategory,
     CLEANED_OUTPUT_DIR
 )
 
@@ -100,10 +101,16 @@ class FilterByRequest(BaseModel):
     value: int
 
 
+class LabelCategoryRequest(BaseModel):
+    """Label category with name (for output) and description (for AI inference criteria)"""
+    name: str
+    description: str = ""  # Optional but recommended
+
+
 class LabelByRequest(BaseModel):
     image_target: Optional[Literal["cover_image", "images"]] = None
     text_target: Optional[Literal["title", "content"]] = None
-    categories: List[str]
+    categories: List[LabelCategoryRequest]  # Now accepts objects with name/description
     prompt: str
 
 
@@ -734,12 +741,16 @@ async def start_cleaning(request: CleaningRequest):
             value=request.filter_by.value
         )
 
-    # Add label if provided
+    # Add label if provided - convert Pydantic models to dataclasses
     if request.label_by:
+        label_categories = [
+            LabelCategory(name=cat.name, description=cat.description)
+            for cat in request.label_by.categories
+        ]
         config.label_by = LabelByCondition(
             image_target=request.label_by.image_target,
             text_target=request.label_by.text_target,
-            categories=request.label_by.categories,
+            categories=label_categories,
             prompt=request.label_by.prompt
         )
 
@@ -756,8 +767,10 @@ async def start_cleaning(request: CleaningRequest):
     async def run_cleaning_task():
         try:
             logger.info(f"Starting cleaning task {task_id}")
-            result = cleaning_service.clean_and_label(config)
-            output_path = cleaning_service.save_cleaned_result(result, config.output_filename)
+            # Run synchronous blocking operations in thread pool to avoid blocking event loop
+            # This allows other API requests and SSE connections to continue working
+            result = await asyncio.to_thread(cleaning_service.clean_and_label, config)
+            output_path = await asyncio.to_thread(cleaning_service.save_cleaned_result, result, config.output_filename)
             output_filename = os.path.basename(output_path)
             logger.info(f"Cleaning task {task_id} completed: {output_path}")
 
@@ -855,8 +868,11 @@ async def get_cleaned_result(filename: str):
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="File not found")
 
-    with open(filepath, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Malformed JSON file: {str(e)}")
 
 
 @app.delete("/api/cleaning/results/{filename}")

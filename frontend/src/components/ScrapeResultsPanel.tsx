@@ -1,7 +1,7 @@
 // Scrape Results Panel - Left side of Data Laundry tab
-// Version: 1.3 - Fixed loading flash by moving loading state inline
-// Changes: Loading skeleton now renders inside the same container structure
-// Previous: Removed "Configure washing" footer section
+// Version: 1.5 - Fixed date parsing regex and applied font-mono to metadata
+// Changes: Regex now handles YYYYMMDD_HHMMSS format, metadata uses font-mono
+// Previous: Applied consistent font-mono styling to headers and counts
 
 'use client';
 
@@ -51,15 +51,25 @@ export default function ScrapeResultsPanel({
 
       for (const file of results) {
         try {
-          // Parse filename pattern: keyword_accountX_timestamp.json
-          const match = file.filename.match(/^(.+)_account(\d+)_(\d+)\.json$/);
+          // Parse filename pattern: keyword_accountX_YYYYMMDD_HHMMSS.json
+          const match = file.filename.match(/^(.+)_account(\d+)_(\d{8})_(\d{6})\.json$/);
 
           if (match) {
+            // Parse YYYYMMDD_HHMMSS into Date
+            const dateStr = match[3]; // YYYYMMDD
+            const timeStr = match[4]; // HHMMSS
+            const year = parseInt(dateStr.substring(0, 4));
+            const month = parseInt(dateStr.substring(4, 6)) - 1; // 0-indexed
+            const day = parseInt(dateStr.substring(6, 8));
+            const hour = parseInt(timeStr.substring(0, 2));
+            const minute = parseInt(timeStr.substring(2, 4));
+            const second = parseInt(timeStr.substring(4, 6));
+
             enrichedFiles.push({
               ...file,
               keyword: match[1],
               accountId: parseInt(match[2]),
-              scrapedAt: new Date(parseInt(match[3])),
+              scrapedAt: new Date(year, month, day, hour, minute, second),
             });
           } else {
             enrichedFiles.push(file);
@@ -165,9 +175,9 @@ export default function ScrapeResultsPanel({
             <span className="text-white font-bold text-sm">1</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-stone-100">Select from Scrape Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Select from Scrape Results</h3>
           </div>
-          <span className="text-xs text-stone-500">
+          <span className="text-xs font-mono text-stone-500">
             {selectedFiles.length} / {filteredFiles.length} selected
           </span>
         </div>
@@ -215,8 +225,8 @@ export default function ScrapeResultsPanel({
               onChange={(e) => setSortOrder(e.target.value as SortOrder)}
               className="px-3 py-2 bg-stone-900 border border-stone-700 rounded-lg text-sm text-stone-200"
             >
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
+              <option value="newest">Date ↓</option>
+              <option value="oldest">Date ↑</option>
             </select>
           </div>
         </div>
@@ -284,7 +294,7 @@ export default function ScrapeResultsPanel({
                   </div>
 
                   {/* Metadata Row */}
-                  <div className="flex items-center gap-3 mt-1 text-xs text-stone-500">
+                  <div className="flex items-center gap-3 mt-1 text-xs font-mono text-stone-500">
                     {file.accountId && (
                       <span>Account {file.accountId}</span>
                     )}

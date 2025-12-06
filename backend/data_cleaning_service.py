@@ -1,12 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 1.1 - Transparent prompting - UI prompt passed directly to Gemini
-# Changes: Now passes user's prompt from UI through to GeminiLabeler for transparent prompting
-# - User's categorization prompt is sent directly to Gemini (no hidden system prompts)
-# - Integrates GeminiLabeler for multi-modal categorization
-# - Supports filterBy conditions (likes, collects, comments) to reduce API calls
-# - Supports labelBy with imageTarget/textTarget combinations
-# - Combines multiple result files with comprehensive metadata
-# - Outputs structured JSON with processing details and labeled posts
+# Version: 1.3 - Fixed JSON serialization of LabelCategory objects
+# Changes: Convert LabelCategory dataclass to dict before storing in metadata
+# Previous: Categories now accept {name, description} objects for better AI prompting
 
 import os
 import json
@@ -53,11 +48,18 @@ class FilterByCondition:
 
 
 @dataclass
+class LabelCategory:
+    """Label category with name and description"""
+    name: str         # Short label name for output (e.g., "single_food")
+    description: str  # Detailed description for AI inference criteria
+
+
+@dataclass
 class LabelByCondition:
     """Label condition for Gemini categorization"""
     image_target: Optional[Literal["cover_image", "images"]]
     text_target: Optional[Literal["title", "content"]]
-    categories: List[str]  # User-defined category descriptions
+    categories: List[LabelCategory]  # User-defined categories with name and description
     prompt: str  # User's categorization prompt/instruction
 
     def to_labeling_mode(self) -> LabelingMode:
@@ -269,12 +271,17 @@ class DataCleaningService:
 
         # Add label condition metadata
         if config.label_by:
+            # Convert LabelCategory dataclass objects to dicts for JSON serialization
+            categories_as_dicts = [
+                {"name": cat.name, "description": cat.description}
+                for cat in config.label_by.categories
+            ]
             result["metadata"]["label_by_condition"] = {
                 "image_target": config.label_by.image_target,
                 "text_target": config.label_by.text_target,
                 "label_count": len(config.label_by.categories),
                 "prompt": config.label_by.prompt,
-                "categories": config.label_by.categories
+                "categories": categories_as_dicts
             }
 
         logger.info(f"Cleaning complete in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts")

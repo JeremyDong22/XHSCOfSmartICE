@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.4 - Changed Cancel to Stop button with stop sign icon, show duration on completion
-// Changes: Stop button with octagon icon during processing, display total duration when completed
-// Previous: Simple animated dots instead of progress bar for better UX
+// Version: 1.5 - Applied consistent font-mono styling to headers and counts
+// Changes: Step title uses font-mono, task counts and file totals use font-mono
+// Previous: Changed Cancel to Stop button, show duration on completion
 
 'use client';
 
@@ -247,7 +247,7 @@ export default function ProcessingQueue({ tasks, onCancelTask }: ProcessingQueue
             <span className="text-white font-bold text-sm">3</span>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-stone-100">Cleaning Queue</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Queue</h3>
             <p className="text-xs text-stone-500">No tasks in queue</p>
           </div>
         </div>
@@ -268,8 +268,8 @@ export default function ProcessingQueue({ tasks, onCancelTask }: ProcessingQueue
               <span className="text-white font-bold text-sm">3</span>
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-stone-100">Cleaning Queue</h3>
-              <p className="text-xs text-stone-500">
+              <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Queue</h3>
+              <p className="text-xs font-mono text-stone-500">
                 {processingTasks.length} processing · {queuedTasks.length} queued
               </p>
             </div>

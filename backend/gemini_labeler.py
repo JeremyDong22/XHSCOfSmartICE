@@ -1,10 +1,8 @@
 # Gemini Flash Image and Content Labeling Module
-# Version: 1.4 - Fully transparent prompting - User controls entire prompt
+# Version: 1.6 - Fixed category type recognition with duck typing
 # Changes:
-# - User's prompt from UI is passed directly to Gemini (no modifications except adding categories)
-# - No hidden system prompts or JSON format injection
-# - Flexible JSON parsing supports multiple response formats (label, labels, category)
-# - User must include their own JSON format instruction in their prompt
+# - _normalize_categories now uses duck typing (hasattr) to recognize any object with name/description
+# - Fixes issue where data_cleaning_service.LabelCategory was not recognized
 #
 # Features:
 # - Supports multiple labeling modes: cover image, all images, title, content, or combinations
@@ -44,6 +42,18 @@ class LabelingMode(str, Enum):
     ALL_IMAGES_TITLE = "all_images_title"
     ALL_IMAGES_CONTENT = "all_images_content"
     FULL = "full"  # All images + title + content
+
+
+@dataclass
+class LabelCategory:
+    """Label category with name and description for AI inference"""
+    name: str         # Short label name for output (e.g., "single_food")
+    description: str  # Detailed description for AI inference criteria
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'LabelCategory':
+        """Create LabelCategory from dictionary"""
+        return cls(name=data.get('name', ''), description=data.get('description', ''))
 
 
 @dataclass
@@ -88,27 +98,40 @@ class GeminiLabeler:
 
         logger.info(f"Initialized GeminiLabeler with model: {model_name} (no hidden system prompt)")
 
-    def _build_prompt(self, categories: List[str], user_prompt: str) -> str:
+    def _build_prompt(self, categories: List[LabelCategory], user_prompt: str) -> str:
         """
         Build the full prompt combining user's prompt with categories.
 
-        FULLY TRANSPARENT - only adds categories list to user's prompt.
-        User controls the entire prompt including JSON format instruction.
+        Categories now include both name (for output) and description (for inference).
+        The prompt instructs Gemini to use exact label names in output while using
+        descriptions as criteria for classification.
 
         Args:
-            categories: List of category labels
+            categories: List of LabelCategory objects with name and description
             user_prompt: User's custom prompt from the UI (should include JSON format)
 
         Returns:
             Complete prompt string
         """
-        # Format categories as a simple list
-        categories_list = "\n".join([f"- {cat}" for cat in categories])
+        # Format categories with clear separation of name (for output) and description (for inference)
+        categories_list = []
+        label_names = []
+        for cat in categories:
+            label_names.append(cat.name)
+            if cat.description:
+                categories_list.append(f"- \"{cat.name}\": {cat.description}")
+            else:
+                categories_list.append(f"- \"{cat.name}\"")
+
+        categories_text = "\n".join(categories_list)
+        valid_labels = ", ".join([f'"{name}"' for name in label_names])
 
         return f"""{user_prompt}
 
-CATEGORIES:
-{categories_list}"""
+CATEGORIES (use exact label name in your output, description explains what to look for):
+{categories_text}
+
+IMPORTANT: Your output label MUST be exactly one of: {valid_labels}"""
 
     def _download_image(self, url: str) -> Optional[Image.Image]:
         """
@@ -222,10 +245,33 @@ CATEGORIES:
             logger.error(f"Raw response: {response_text}")
             raise
 
+    def _normalize_categories(self, categories: List[Any]) -> List[LabelCategory]:
+        """
+        Normalize categories to List[LabelCategory] format.
+        Supports: List[str], List[dict], List[LabelCategory], or any object with name/description attrs.
+        Uses duck typing to handle LabelCategory from different modules.
+        """
+        normalized = []
+        for cat in categories:
+            if isinstance(cat, LabelCategory):
+                normalized.append(cat)
+            elif isinstance(cat, dict):
+                normalized.append(LabelCategory.from_dict(cat))
+            elif isinstance(cat, str):
+                # Backward compatibility: treat string as name with empty description
+                normalized.append(LabelCategory(name=cat, description=""))
+            elif hasattr(cat, 'name') and hasattr(cat, 'description'):
+                # Duck typing: any object with name and description attributes
+                # This handles LabelCategory from data_cleaning_service.py
+                normalized.append(LabelCategory(name=cat.name, description=cat.description))
+            else:
+                logger.warning(f"Unknown category format: {type(cat)}, skipping")
+        return normalized
+
     def label_post(
         self,
         post: Dict[str, Any],
-        categories: List[str],
+        categories: List[Any],  # Accepts LabelCategory, dict, or str for backward compatibility
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
         user_prompt: str = "Classify this image into one of the categories below."
     ) -> LabelingResult:
@@ -234,7 +280,7 @@ CATEGORIES:
 
         Args:
             post: XHS post dictionary (must have note_id)
-            categories: List of category labels
+            categories: List of LabelCategory objects, dicts with name/description, or strings
             mode: Labeling mode (what to analyze)
             user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
 
@@ -244,8 +290,11 @@ CATEGORIES:
         note_id = post.get("note_id", "unknown")
 
         try:
+            # Normalize categories to LabelCategory format
+            normalized_categories = self._normalize_categories(categories)
+
             # Build the TRANSPARENT prompt - user's prompt + categories + JSON format
-            full_prompt = self._build_prompt(categories, user_prompt)
+            full_prompt = self._build_prompt(normalized_categories, user_prompt)
 
             # Prepare content parts
             content_parts = self._prepare_content_parts(post, mode, full_prompt)
@@ -332,7 +381,7 @@ CATEGORIES:
     def label_posts_batch(
         self,
         posts: List[Dict[str, Any]],
-        categories: List[str],
+        categories: List[Any],  # Accepts LabelCategory, dict, or str for backward compatibility
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
         user_prompt: str = "Classify this image into one of the categories below.",
         max_posts: Optional[int] = None
@@ -342,7 +391,7 @@ CATEGORIES:
 
         Args:
             posts: List of XHS post dictionaries
-            categories: List of category descriptions
+            categories: List of LabelCategory objects, dicts with name/description, or strings
             mode: Labeling mode (what to analyze)
             user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
             max_posts: Maximum number of posts to process (None = all)

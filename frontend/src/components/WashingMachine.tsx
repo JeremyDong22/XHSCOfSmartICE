@@ -1,8 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 1.7 - Removed non-functional options that require detail scraping
-// Changes: Removed "All Images" and "Title + Content" options since scraper only collects
-// search results data (cover image, title, likes). These features would require scraping
-// individual post pages to get content text and all carousel images.
+// Version: 1.9 - Added separate name/description fields for label categories
+// Changes: Labels now have name (short, for output) and description (detailed criteria for AI inference)
+// Previous: Applied consistent font-mono styling to headers and counts
 // Features: Label By with Image Analysis (cover image only) and Text Analysis (title only)
 
 'use client';
@@ -17,6 +16,12 @@ export interface FilterByConfig {
   value: number;
 }
 
+// Label definition with short name for output and detailed description for AI inference
+export interface LabelDefinition {
+  name: string;        // Short label name for output (e.g., "single_food")
+  description: string; // Detailed description for AI to understand criteria
+}
+
 export interface LabelByConfig {
   enabled: boolean;
   // Image group - can select one or none
@@ -24,7 +29,7 @@ export interface LabelByConfig {
   // Text group - can select one or none
   textTarget: 'title' | 'content' | null;
   labelCount: number;
-  labels: string[];
+  labels: LabelDefinition[];  // Array of label definitions with name and description
   prompt: string;
 }
 
@@ -57,13 +62,16 @@ export default function WashingMachine({
   onTaskSubmit,
   disabled = false,
 }: WashingMachineProps) {
-  // Label By state - labels array initialized with empty strings based on labelCount
+  // Label By state - labels array initialized with empty LabelDefinition objects
   const [labelBy, setLabelBy] = useState<LabelByConfig>({
     enabled: false,
     imageTarget: null,
     textTarget: null,
     labelCount: 2,
-    labels: ['', ''],  // Initialize with empty strings matching labelCount
+    labels: [
+      { name: '', description: '' },
+      { name: '', description: '' },
+    ],
     prompt: '',
   });
 
@@ -74,11 +82,11 @@ export default function WashingMachine({
 
   // Example placeholder labels for each input box
   const exampleLabels = [
-    'single_food',
-    'multiple_food',
-    'lifestyle',
-    'product',
-    'tutorial',
+    { name: 'single_food', description: 'Only one type of food item in the image' },
+    { name: 'multiple_food', description: 'Multiple different food items or a spread' },
+    { name: 'lifestyle', description: 'Focus on lifestyle or ambiance, not food' },
+    { name: 'product', description: 'Product showcase or promotional content' },
+    { name: 'tutorial', description: 'Recipe or cooking tutorial content' },
   ];
 
   // Handle label count change - resize labels array
@@ -86,7 +94,7 @@ export default function WashingMachine({
     const newLabels = [...labelBy.labels];
     // Expand or shrink the array
     while (newLabels.length < newCount) {
-      newLabels.push('');
+      newLabels.push({ name: '', description: '' });
     }
     while (newLabels.length > newCount) {
       newLabels.pop();
@@ -94,29 +102,39 @@ export default function WashingMachine({
     setLabelBy({ ...labelBy, labelCount: newCount, labels: newLabels });
   };
 
-  // Handle individual label input change
-  const handleLabelChange = (index: number, value: string) => {
+  // Handle individual label name change
+  const handleLabelNameChange = (index: number, name: string) => {
     const newLabels = [...labelBy.labels];
-    newLabels[index] = value;
-    // Also update the prompt field with all non-empty labels for backend compatibility
-    const nonEmptyLabels = newLabels.filter(l => l.trim());
-    setLabelBy({ ...labelBy, labels: newLabels, prompt: nonEmptyLabels.join(', ') });
+    newLabels[index] = { ...newLabels[index], name };
+    setLabelBy({ ...labelBy, labels: newLabels });
   };
 
-  // Check if all label fields are filled
-  const allLabelsFilled = useMemo(() => {
-    return labelBy.labels.slice(0, labelBy.labelCount).every(l => l.trim().length > 0);
+  // Handle individual label description change
+  const handleLabelDescriptionChange = (index: number, description: string) => {
+    const newLabels = [...labelBy.labels];
+    newLabels[index] = { ...newLabels[index], description };
+    setLabelBy({ ...labelBy, labels: newLabels });
+  };
+
+  // Check if all label names are filled (descriptions are optional but recommended)
+  const allLabelNamesFilled = useMemo(() => {
+    return labelBy.labels.slice(0, labelBy.labelCount).every(l => l.name.trim().length > 0);
   }, [labelBy.labels, labelBy.labelCount]);
 
-  // Get filled labels count
-  const filledLabelsCount = useMemo(() => {
-    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.trim().length > 0).length;
+  // Get filled label names count
+  const filledLabelNamesCount = useMemo(() => {
+    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.name.trim().length > 0).length;
+  }, [labelBy.labels, labelBy.labelCount]);
+
+  // Get filled descriptions count (for showing completeness indicator)
+  const filledDescriptionsCount = useMemo(() => {
+    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.description.trim().length > 0).length;
   }, [labelBy.labels, labelBy.labelCount]);
 
   // Validation
   const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null;
   const isValid = selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget;
-  const hasLabelPrompt = !labelBy.enabled || allLabelsFilled;
+  const hasLabelPrompt = !labelBy.enabled || allLabelNamesFilled;
 
   // Generate task and submit
   const handleSubmit = () => {
@@ -150,7 +168,7 @@ export default function WashingMachine({
             <span className="text-white font-bold text-sm">2</span>
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-stone-100">Data Cleaning</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Data Cleaning</h3>
           </div>
         </div>
 
@@ -158,7 +176,7 @@ export default function WashingMachine({
         <div className="mt-3 px-3 py-2 bg-stone-900 rounded-lg border border-stone-700">
           <div className="flex items-center justify-between text-sm">
             <span className="text-stone-400">Files to wash:</span>
-            <span className={`font-mono ${selectedFiles.length > 0 ? 'text-emerald-400' : 'text-stone-500'}`}>
+            <span className={`font-mono text-xs ${selectedFiles.length > 0 ? 'text-emerald-400' : 'text-stone-500'}`}>
               {selectedFiles.length} selected
             </span>
           </div>
@@ -275,40 +293,68 @@ export default function WashingMachine({
               </div>
             </div>
 
-            {/* Dynamic Label Input Boxes */}
+            {/* Dynamic Label Input Boxes - Name and Description */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs text-stone-500">
                   Define your {labelBy.labelCount} categories:
                 </label>
-                <span className={`text-xs ${allLabelsFilled ? 'text-emerald-400' : 'text-amber-400/70'}`}>
-                  {filledLabelsCount}/{labelBy.labelCount} filled
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs ${allLabelNamesFilled ? 'text-emerald-400' : 'text-amber-400/70'}`}>
+                    Names: {filledLabelNamesCount}/{labelBy.labelCount}
+                  </span>
+                  <span className={`text-xs ${filledDescriptionsCount === labelBy.labelCount ? 'text-emerald-400' : 'text-stone-500'}`}>
+                    Desc: {filledDescriptionsCount}/{labelBy.labelCount}
+                  </span>
+                </div>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {Array.from({ length: labelBy.labelCount }).map((_, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <span className="w-6 h-6 flex items-center justify-center rounded-full bg-stone-800 text-xs text-stone-400 flex-shrink-0">
-                      {index + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={labelBy.labels[index] || ''}
-                      onChange={(e) => handleLabelChange(index, e.target.value)}
-                      placeholder={`e.g., ${exampleLabels[index] || 'category_name'}`}
-                      disabled={!labelBy.enabled}
-                      className={`flex-1 px-3 py-2 bg-stone-800 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors ${
-                        labelBy.labels[index]?.trim()
-                          ? 'border-[rgba(16,185,129,0.3)]'
-                          : 'border-stone-700'
-                      }`}
-                    />
+                  <div key={index} className="p-3 bg-stone-800 rounded-lg border border-stone-700">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-5 h-5 flex items-center justify-center rounded-full bg-stone-700 text-xs text-stone-400 flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <span className="text-xs text-stone-500">Category {index + 1}</span>
+                    </div>
+                    {/* Label Name Input */}
+                    <div className="mb-2">
+                      <label className="block text-xs text-stone-500 mb-1">Label Name (for output)</label>
+                      <input
+                        type="text"
+                        value={labelBy.labels[index]?.name || ''}
+                        onChange={(e) => handleLabelNameChange(index, e.target.value)}
+                        placeholder={`e.g., ${exampleLabels[index]?.name || 'category_name'}`}
+                        disabled={!labelBy.enabled}
+                        className={`w-full px-3 py-2 bg-stone-900 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors ${
+                          labelBy.labels[index]?.name?.trim()
+                            ? 'border-[rgba(16,185,129,0.3)]'
+                            : 'border-stone-700'
+                        }`}
+                      />
+                    </div>
+                    {/* Label Description Input */}
+                    <div>
+                      <label className="block text-xs text-stone-500 mb-1">Description (criteria for AI)</label>
+                      <textarea
+                        value={labelBy.labels[index]?.description || ''}
+                        onChange={(e) => handleLabelDescriptionChange(index, e.target.value)}
+                        placeholder={`e.g., ${exampleLabels[index]?.description || 'Describe what this category means...'}`}
+                        disabled={!labelBy.enabled}
+                        rows={2}
+                        className={`w-full px-3 py-2 bg-stone-900 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors resize-none ${
+                          labelBy.labels[index]?.description?.trim()
+                            ? 'border-[rgba(16,185,129,0.3)]'
+                            : 'border-stone-700'
+                        }`}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
-              {labelBy.enabled && !allLabelsFilled && (
+              {labelBy.enabled && !allLabelNamesFilled && (
                 <p className="mt-2 text-xs text-amber-400/70">
-                  Please fill in all {labelBy.labelCount} category names
+                  Please fill in all {labelBy.labelCount} label names (descriptions are optional but recommended)
                 </p>
               )}
             </div>
@@ -368,9 +414,9 @@ export default function WashingMachine({
             Select at least one analysis target (Image or Text)
           </p>
         )}
-        {isValid && !allLabelsFilled && (
+        {isValid && !allLabelNamesFilled && (
           <p className="mt-2 text-xs text-center text-amber-400/70">
-            Fill in all {labelBy.labelCount} category names ({filledLabelsCount}/{labelBy.labelCount} done)
+            Fill in all {labelBy.labelCount} label names ({filledLabelNamesCount}/{labelBy.labelCount} done)
           </p>
         )}
       </div>

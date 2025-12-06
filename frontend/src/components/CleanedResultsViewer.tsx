@@ -1,6 +1,6 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 1.8 - Applied consistent font-mono styling to headers, file size display, newest first sort
-// Changes: Step title uses font-mono, file list matches ResultsViewer styling, sorted by date
+// Version: 1.9 - Fixed label filter dropdown key error with category objects
+// Changes: availableLabels now extracts name strings from {name, description} category objects
 // Features: Metadata display, filter by label dropdown, sort by likes, delete files
 
 'use client';
@@ -342,12 +342,16 @@ export default function CleanedResultsViewer({
 
   // Get categories from metadata (user-defined during labeling)
   // Falls back to extracting unique labels from posts if metadata doesn't have categories
+  // Returns array of string names for use in filter dropdown
   const availableLabels = useMemo(() => {
     if (!selectedFileData) return [];
 
-    // Prefer categories from metadata - these are the user-defined categories
-    if (selectedFileData.metadata?.labelByCondition?.categories?.length) {
-      return selectedFileData.metadata.labelByCondition.categories;
+    // Prefer categories from metadata - extract just the name strings
+    const categories = selectedFileData.metadata?.labelByCondition?.categories;
+    if (categories?.length) {
+      return categories.map((cat: { name: string; description: string } | string) =>
+        typeof cat === 'string' ? cat : cat.name
+      );
     }
 
     // Fallback: extract unique labels from posts
@@ -392,7 +396,7 @@ export default function CleanedResultsViewer({
             <span className="text-white font-bold text-sm">4</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-stone-100">Cleaning Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Results</h3>
           </div>
         </div>
         <div className="text-center py-8 text-stone-500 text-sm">
@@ -411,7 +415,7 @@ export default function CleanedResultsViewer({
             <span className="text-white font-bold text-sm">4</span>
           </div>
           <div className="flex-1">
-            <h3 className="text-sm font-semibold text-stone-100">Cleaning Results</h3>
+            <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Results</h3>
           </div>
         </div>
 
