@@ -1,7 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 4.3 - UI localization to Chinese
-// Changes: All labels, buttons, and messages translated to Chinese
-// Previous: Collapsible prompt preview with smooth transition animation
+// Version: 4.4 - Complete UI localization to Chinese
+// Changes: Translated Cover Image -> 帖子封面, Title -> 帖子标题, and other remaining English text
+// Previous: UI localization to Chinese
 
 'use client';
 
@@ -140,9 +140,9 @@ Output your analysis in this exact JSON format:
         {/* Selected files indicator */}
         <div className="mt-3 px-3 py-2 bg-stone-900 rounded-lg border border-stone-700">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-stone-400">Files to wash:</span>
+            <span className="text-stone-400">待清洗文件:</span>
             <span className={`font-mono text-xs ${selectedFiles.length > 0 ? 'text-emerald-400' : 'text-stone-500'}`}>
-              {selectedFiles.length} selected
+              已选 {selectedFiles.length} 个
             </span>
           </div>
         </div>
@@ -160,9 +160,9 @@ Output your analysis in this exact JSON format:
                 onChange={(e) => setLabelBy({ ...labelBy, enabled: e.target.checked })}
                 className="flex-shrink-0"
               />
-              <span className="text-sm font-medium text-stone-200">Label By</span>
+              <span className="text-sm font-medium text-stone-200">AI 标签</span>
             </label>
-            <span className="text-xs text-stone-500">Add AI-generated labels to posts</span>
+            <span className="text-xs text-stone-500">使用 AI 为帖子自动生成标签</span>
           </div>
 
           <div className={`p-4 bg-stone-900 rounded-lg border transition-all ${
@@ -172,13 +172,13 @@ Output your analysis in this exact JSON format:
             {labelBy.enabled && hasAtLeastOneTarget && (
               <div className="mb-4 px-3 py-2 bg-stone-800 rounded-lg border border-[rgba(217,119,87,0.2)]">
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="text-stone-500">Selected:</span>
+                  <span className="text-stone-500">已选择:</span>
                   <span className="text-[#E8A090] font-medium">
                     {[
-                      labelBy.imageTarget === 'cover_image' ? 'Cover Image' :
-                      labelBy.imageTarget === 'images' ? 'All Images' : null,
-                      labelBy.textTarget === 'title' ? 'Title Only' :
-                      labelBy.textTarget === 'content' ? 'Title + Content' : null,
+                      labelBy.imageTarget === 'cover_image' ? '帖子封面' :
+                      labelBy.imageTarget === 'images' ? '全部图片' : null,
+                      labelBy.textTarget === 'title' ? '帖子标题' :
+                      labelBy.textTarget === 'content' ? '标题 + 正文' : null,
                     ].filter(Boolean).join(' + ')}
                   </span>
                 </div>
@@ -187,10 +187,10 @@ Output your analysis in this exact JSON format:
 
             {/* Image Analysis Group - Only Cover Image available (All Images requires detail scraping) */}
             <div className="mb-4">
-              <label className="block text-xs text-stone-500 mb-2">Image Analysis:</label>
+              <label className="block text-xs text-stone-500 mb-2">图片分析:</label>
               <div className="grid grid-cols-1 gap-2">
                 {[
-                  { value: 'cover_image' as const, label: 'Cover Image' },
+                  { value: 'cover_image' as const, label: '帖子封面' },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -213,10 +213,10 @@ Output your analysis in this exact JSON format:
 
             {/* Text Analysis Group - Only Title available (Content requires detail scraping) */}
             <div className="mb-4">
-              <label className="block text-xs text-stone-500 mb-2">Text Analysis:</label>
+              <label className="block text-xs text-stone-500 mb-2">文本分析:</label>
               <div className="grid grid-cols-1 gap-2">
                 {[
-                  { value: 'title' as const, label: 'Title' },
+                  { value: 'title' as const, label: '帖子标题' },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -271,7 +271,7 @@ Output your analysis in this exact JSON format:
               className="w-full mb-1 text-left"
             >
               <span className="text-xs text-stone-600">
-                &gt; {isPromptExpanded ? 'hide prompt' : 'full prompt preview'}
+                &gt; {isPromptExpanded ? '收起提示词' : '查看完整提示词'}
               </span>
             </button>
 
@@ -287,7 +287,7 @@ Output your analysis in this exact JSON format:
                 </pre>
                 <div className="mt-3 pt-3 border-t border-stone-700/30">
                   <p className="text-xs text-stone-500">
-                    <span className="text-stone-600">Expected output:</span>{' '}
+                    <span className="text-stone-600">输出格式:</span>{' '}
                     <span className="text-stone-500 font-mono">label</span> (是/否) + {' '}
                     <span className="text-stone-500 font-mono">style_label</span> (特写图/环境图/拼接图/信息图) + {' '}
                     <span className="text-stone-500 font-mono">reasoning</span> (中文解释)
@@ -313,27 +313,27 @@ Output your analysis in this exact JSON format:
           <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          Add to Wash Queue
+          添加到清洗队列
         </button>
 
         {!isValid && selectedFiles.length === 0 && (
           <p className="mt-2 text-xs text-center text-stone-500">
-            Select files from the left panel to begin
+            请从左侧面板选择文件
           </p>
         )}
         {!isValid && selectedFiles.length > 0 && !labelBy.enabled && (
           <p className="mt-2 text-xs text-center text-stone-500">
-            Enable Label By to start cleaning
+            请启用 AI 标签以开始清洗
           </p>
         )}
         {!isValid && selectedFiles.length > 0 && labelBy.enabled && !hasAtLeastOneTarget && (
           <p className="mt-2 text-xs text-center text-stone-500">
-            Select at least one analysis target (Image or Text)
+            请至少选择一个分析目标（图片或文本）
           </p>
         )}
         {!isValid && selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget && !hasUserDescription && (
           <p className="mt-2 text-xs text-center text-amber-400/70">
-            Please describe the posts you want to filter
+            请描述你想筛选的帖子特征
           </p>
         )}
       </div>
