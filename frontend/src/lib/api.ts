@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 1.7 - Added cleaning task status polling endpoint
-// Changes: Added getCleaningTaskStatus for tracking background task completion
-// Previous: Added cleaning endpoints for Gemini-based labeling
+// Version: 1.9 - Added persistent task restore API for page refresh recovery
+// Changes: Added CleaningTaskFull type and getCleaningTasks, deleteCleaningTask functions
+// Previous: LabelByRequest.categories now accepts array of {name, description} objects
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -298,10 +298,16 @@ export interface FilterByRequest {
   value: number;
 }
 
+// Label category definition with name and description
+export interface LabelCategory {
+  name: string;        // Short label name for output (e.g., "single_food")
+  description: string; // Detailed description for AI inference criteria
+}
+
 export interface LabelByRequest {
   image_target?: 'cover_image' | 'images' | null;
   text_target?: 'title' | 'content' | null;
-  categories: string[];
+  categories: LabelCategory[];  // Array of label definitions with name and description
   prompt: string;
 }
 
@@ -310,6 +316,9 @@ export interface CleaningRequest {
   filter_by?: FilterByRequest | null;
   label_by?: LabelByRequest | null;
   output_filename?: string;
+  // Frontend task tracking fields for persistent storage
+  frontend_task_id?: string;
+  frontend_config?: CleaningConfigStored;
 }
 
 export interface CleaningStartResponse {
@@ -409,5 +418,64 @@ export async function deleteCleanedResult(filename: string): Promise<void> {
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.detail || 'Failed to delete cleaned result');
+  }
+}
+
+// Types for persistent task storage (matching backend models)
+export interface FilterByConfigStored {
+  enabled: boolean;
+  metric: string;
+  operator: string;
+  value: number;
+}
+
+export interface LabelDefinitionStored {
+  name: string;
+  description: string;
+}
+
+export interface LabelByConfigStored {
+  enabled: boolean;
+  imageTarget: string | null;
+  textTarget: string | null;
+  labelCount: number;
+  labels: LabelDefinitionStored[];
+  prompt: string;
+}
+
+export interface CleaningConfigStored {
+  filterBy: FilterByConfigStored;
+  labelBy: LabelByConfigStored;
+  unifiedPrompt: string;
+}
+
+export interface CleaningTaskFull {
+  id: string;  // Frontend task ID (e.g., task_1733556789)
+  backend_task_id: string;  // Backend task ID (UUID)
+  files: string[];  // Source filenames
+  config: CleaningConfigStored;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  started_at?: string;
+  completed_at?: string;
+  progress: number;
+  error?: string;
+  created_at: string;
+}
+
+// Get all cleaning tasks (for page refresh restore)
+export async function getCleaningTasks(): Promise<CleaningTaskFull[]> {
+  const res = await fetch(`${API_BASE}/cleaning/tasks`);
+  if (!res.ok) throw new Error('Failed to fetch cleaning tasks');
+  return res.json();
+}
+
+// Delete a cleaning task from persistent storage
+export async function deleteCleaningTask(taskId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/cleaning/tasks/${taskId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to delete cleaning task');
   }
 }

@@ -1,7 +1,7 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 1.9 - Fixed label filter dropdown key error with category objects
-// Changes: availableLabels now extracts name strings from {name, description} category objects
-// Features: Metadata display, filter by label dropdown, sort by likes, delete files
+// Version: 2.0 - Preview now displays inline below selected file, increased list height
+// Changes: Restructured layout so preview expands under the selected file row
+// Previous: Fixed label filter dropdown key error with category objects
 
 'use client';
 
@@ -304,7 +304,7 @@ export default function CleanedResultsViewer({
     return [...files].sort((a, b) => b.cleanedAt.getTime() - a.cleanedAt.getTime());
   }, [files]);
 
-  // Handle file selection
+  // Handle file selection - toggle expand/collapse
   const handleFileClick = (filename: string) => {
     if (selectedFile === filename) {
       setSelectedFile(null);
@@ -406,27 +406,151 @@ export default function CleanedResultsViewer({
     );
   }
 
+  // Render inline preview content for a selected file
+  const renderPreviewContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-8">
+          <div className="animate-spin w-6 h-6 border-2 border-stone-600 border-t-[#D97757] rounded-full" />
+        </div>
+      );
+    }
+
+    if (!selectedFileData) {
+      return <p className="text-stone-500 text-sm py-4">No content available</p>;
+    }
+
+    return (
+      <>
+        {/* Metadata */}
+        <MetadataSection metadata={selectedFileData.metadata} />
+
+        {/* Controls row */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-0.5">
+            <button
+              onClick={() => setViewMode('visual')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                viewMode === 'visual'
+                  ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090]'
+                  : 'text-stone-400 hover:text-stone-300'
+              }`}
+            >
+              Cards
+            </button>
+            <button
+              onClick={() => setViewMode('json')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                viewMode === 'json'
+                  ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090]'
+                  : 'text-stone-400 hover:text-stone-300'
+              }`}
+            >
+              JSON
+            </button>
+          </div>
+
+          {/* Label filter */}
+          {availableLabels.length > 0 && (
+            <select
+              value={selectedLabelFilter}
+              onChange={(e) => setSelectedLabelFilter(e.target.value)}
+              className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+            >
+              <option value="all">All Labels</option>
+              {availableLabels.map(label => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Sort controls */}
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
+              Sort by Likes
+            </span>
+
+            <button
+              type="button"
+              onClick={() => {
+                const newOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+                setSortOrder(newOrder);
+              }}
+              className={`px-2 py-1.5 bg-stone-900 border rounded-lg transition-all cursor-pointer select-none ${
+                sortOrder === 'asc'
+                  ? 'border-[rgba(217,119,87,0.5)] text-[#E8A090]'
+                  : 'border-stone-700 text-stone-400 hover:border-stone-600'
+              }`}
+              title={sortOrder === 'desc' ? 'Click for Ascending' : 'Click for Descending'}
+            >
+              <div className="flex items-center gap-1">
+                <svg
+                  className={`w-4 h-4 transition-transform duration-200 ${
+                    sortOrder === 'asc' ? 'rotate-180' : ''
+                  }`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M19 9l-7 7-7-7" />
+                </svg>
+                <span className="text-xs font-medium">
+                  {sortOrder === 'desc' ? 'DESC' : 'ASC'}
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {/* Results count */}
+          <span className="text-xs text-stone-500 ml-auto">
+            {processedPosts.length} posts
+          </span>
+        </div>
+
+        {/* Posts display */}
+        <div className="max-h-[500px] overflow-y-auto">
+          {viewMode === 'visual' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {processedPosts.map((post) => (
+                <LabeledPostCard key={post.note_id} post={post} />
+              ))}
+            </div>
+          ) : (
+            <pre className="font-mono text-sm text-emerald-300 whitespace-pre-wrap bg-black rounded-lg p-4 max-h-[400px] overflow-y-auto">
+              {JSON.stringify(selectedFileData, null, 2)}
+            </pre>
+          )}
+        </div>
+      </>
+    );
+  };
+
   return (
     <div className="bg-stone-800 rounded-xl border border-stone-700">
       {/* Header */}
       <div className="p-4 border-b border-stone-700">
-        <div className="flex items-center gap-3 mb-3">
+        <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#D97757] to-[#B85C3E] flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-sm">4</span>
           </div>
           <div className="flex-1">
             <h3 className="text-sm font-mono font-semibold text-stone-50 tracking-tight">Cleaning Results</h3>
           </div>
+          <span className="text-xs text-stone-500">{files.length} files</span>
         </div>
+      </div>
 
-        {/* File list - sorted by newest date first */}
-        <div className="space-y-2 max-h-[200px] overflow-y-auto">
-          {sortedFiles.map((file) => (
+      {/* File list with inline previews - increased max height */}
+      <div className="p-4 space-y-2 max-h-[800px] overflow-y-auto">
+        {sortedFiles.map((file) => (
+          <div key={file.filename} className="space-y-0">
+            {/* File row */}
             <div
-              key={file.filename}
               className={`flex items-stretch rounded-lg transition-all ${
                 selectedFile === file.filename
-                  ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)]'
+                  ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)] rounded-b-none border-b-0'
                   : 'bg-stone-900 border border-stone-700 hover:border-stone-600'
               }`}
             >
@@ -435,7 +559,21 @@ export default function CleanedResultsViewer({
                 className="flex-1 text-left px-4 py-3 rounded-l-lg transition-colors"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-stone-50 truncate flex-1 text-sm">{file.filename}</span>
+                  <div className="flex items-center gap-2">
+                    {/* Expand/collapse indicator */}
+                    <svg
+                      className={`w-4 h-4 text-stone-400 transition-transform duration-200 ${
+                        selectedFile === file.filename ? 'rotate-90' : ''
+                      }`}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="font-medium text-stone-50 truncate text-sm">{file.filename}</span>
+                  </div>
                   <span className="font-mono text-xs text-stone-500 ml-4">
                     {formatFileSize(file.size)}
                   </span>
@@ -466,127 +604,16 @@ export default function CleanedResultsViewer({
                 )}
               </button>
             </div>
-          ))}
-        </div>
+
+            {/* Inline preview - shows directly below selected file */}
+            {selectedFile === file.filename && (
+              <div className="bg-[rgba(217,119,87,0.05)] border border-[rgba(217,119,87,0.25)] border-t-0 rounded-b-lg p-4">
+                {renderPreviewContent()}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
-
-      {/* Content area */}
-      {selectedFile && (
-        <div className="p-4">
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin w-6 h-6 border-2 border-stone-600 border-t-[#D97757] rounded-full" />
-            </div>
-          ) : selectedFileData ? (
-            <>
-              {/* Metadata */}
-              <MetadataSection metadata={selectedFileData.metadata} />
-
-              {/* Controls row */}
-              <div className="flex flex-wrap items-center gap-3 mb-4">
-                {/* View mode toggle */}
-                <div className="flex items-center gap-1 bg-stone-900 rounded-lg p-0.5">
-                  <button
-                    onClick={() => setViewMode('visual')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      viewMode === 'visual'
-                        ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090]'
-                        : 'text-stone-400 hover:text-stone-300'
-                    }`}
-                  >
-                    Cards
-                  </button>
-                  <button
-                    onClick={() => setViewMode('json')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
-                      viewMode === 'json'
-                        ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090]'
-                        : 'text-stone-400 hover:text-stone-300'
-                    }`}
-                  >
-                    JSON
-                  </button>
-                </div>
-
-                {/* Label filter */}
-                {availableLabels.length > 0 && (
-                  <select
-                    value={selectedLabelFilter}
-                    onChange={(e) => setSelectedLabelFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-                  >
-                    <option value="all">All Labels</option>
-                    {availableLabels.map(label => (
-                      <option key={label} value={label}>{label}</option>
-                    ))}
-                  </select>
-                )}
-
-                {/* Sort controls - Only likes available (collects/comments require detail scraping) */}
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
-                    Sort by Likes
-                  </span>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const newOrder = sortOrder === 'desc' ? 'asc' : 'desc';
-                      setSortOrder(newOrder);
-                    }}
-                    className={`px-2 py-1.5 bg-stone-900 border rounded-lg transition-all cursor-pointer select-none ${
-                      sortOrder === 'asc'
-                        ? 'border-[rgba(217,119,87,0.5)] text-[#E8A090]'
-                        : 'border-stone-700 text-stone-400 hover:border-stone-600'
-                    }`}
-                    title={sortOrder === 'desc' ? 'Click for Ascending' : 'Click for Descending'}
-                    aria-label={`Sort ${sortOrder === 'desc' ? 'descending' : 'ascending'}, click to toggle`}
-                  >
-                    <div className="flex items-center gap-1">
-                      <svg
-                        className={`w-4 h-4 transition-transform duration-200 ${
-                          sortOrder === 'asc' ? 'rotate-180' : ''
-                        }`}
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <path d="M19 9l-7 7-7-7" />
-                      </svg>
-                      <span className="text-xs font-medium">
-                        {sortOrder === 'desc' ? 'DESC' : 'ASC'}
-                      </span>
-                    </div>
-                  </button>
-                </div>
-
-                {/* Results count */}
-                <span className="text-xs text-stone-500 ml-auto">
-                  {processedPosts.length} posts
-                </span>
-              </div>
-
-              {/* Posts display */}
-              <div className="max-h-[600px] overflow-y-auto">
-                {viewMode === 'visual' ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-                    {processedPosts.map((post) => (
-                      <LabeledPostCard key={post.note_id} post={post} />
-                    ))}
-                  </div>
-                ) : (
-                  <pre className="font-mono text-sm text-emerald-300 whitespace-pre-wrap bg-black rounded-lg p-4">
-                    {JSON.stringify(selectedFileData, null, 2)}
-                  </pre>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-stone-500 text-sm">No content available</p>
-          )}
-        </div>
-      )}
     </div>
   );
 }

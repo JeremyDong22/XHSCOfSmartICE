@@ -1,10 +1,10 @@
 // Results viewer component for displaying scrape output files
-// Version: 3.0 - Added visual preview mode with Xiaohongshu-style card grid
-// Changes: Toggle between JSON and visual preview, card grid with images/likes/author
+// Version: 3.2 - Fixed date sorting for YYYYMMDD_HHMMSS filename format
+// Changes: Updated regex to parse date from filename format keyword_accountX_YYYYMMDD_HHMMSS.json
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ResultFile, getScrapeResults, getScrapeResult, deleteScrapeResult, ScrapeResultData, XHSPost } from '@/lib/api';
 
 interface ResultsViewerProps {
@@ -160,6 +160,20 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
   const [contentLoading, setContentLoading] = useState(false);
   const [viewMode, setViewMode] = useState<'visual' | 'json'>('visual');
 
+  // Sort files by date extracted from filename (newest first)
+  // Filename format: keyword_accountX_YYYYMMDD_HHMMSS.json
+  const sortedFiles = useMemo(() => {
+    return [...files].sort((a, b) => {
+      // Extract YYYYMMDD_HHMMSS from filename
+      const matchA = a.filename.match(/_(\d{8})_(\d{6})\.json$/);
+      const matchB = b.filename.match(/_(\d{8})_(\d{6})\.json$/);
+      // Combine date and time as sortable string (e.g., "20251207003659")
+      const timestampA = matchA ? matchA[1] + matchA[2] : '0';
+      const timestampB = matchB ? matchB[1] + matchB[2] : '0';
+      return timestampB.localeCompare(timestampA);  // Newest first
+    });
+  }, [files]);
+
   useEffect(() => {
     loadFiles();
   }, [refreshTrigger]);
@@ -250,7 +264,7 @@ export default function ResultsViewer({ refreshTrigger }: ResultsViewerProps) {
         </div>
       ) : (
         <div className="space-y-2">
-          {files.map((file) => (
+          {sortedFiles.map((file) => (
             <div key={file.filename}>
               <div
                 className={`flex items-stretch rounded-lg transition-all ${

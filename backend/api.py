@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 2.2 - Fixed event loop blocking during data cleaning
-# Changes: Run synchronous clean_and_label in thread pool with asyncio.to_thread
-# Previous: LabelByRequest.categories now accepts array of {name, description} objects
+# Version: 2.6 - Cleaned up debug logging, fixed model definition order
+# Changes: Removed debug logs, CleaningConfigStored now defined before CleaningRequest
+# Previous: Fixed class definition order to resolve NameError
 
 import os
 import json
@@ -114,11 +114,46 @@ class LabelByRequest(BaseModel):
     prompt: str
 
 
+# Persistent task storage models - defined before CleaningRequest which references them
+class FilterByConfigStored(BaseModel):
+    """Stored filter config for persistent task data"""
+    enabled: bool = False
+    metric: str = "likes"
+    operator: str = "gte"
+    value: int = 0
+
+
+class LabelDefinitionStored(BaseModel):
+    """Stored label definition"""
+    name: str
+    description: str = ""
+
+
+class LabelByConfigStored(BaseModel):
+    """Stored label config for persistent task data"""
+    enabled: bool = False
+    imageTarget: Optional[str] = None
+    textTarget: Optional[str] = None
+    labelCount: int = 2
+    labels: List[LabelDefinitionStored] = []
+    prompt: str = ""
+
+
+class CleaningConfigStored(BaseModel):
+    """Stored cleaning config for persistent task data"""
+    filterBy: FilterByConfigStored
+    labelBy: LabelByConfigStored
+    unifiedPrompt: str = ""
+
+
 class CleaningRequest(BaseModel):
     source_files: List[str]  # Filenames in output/ directory
     filter_by: Optional[FilterByRequest] = None
     label_by: Optional[LabelByRequest] = None
     output_filename: Optional[str] = None
+    # Frontend task tracking fields for persistent storage
+    frontend_task_id: Optional[str] = None  # e.g., "task_1733556789"
+    frontend_config: Optional[CleaningConfigStored] = None  # Full frontend config for restore
 
 
 class CleaningStartResponse(BaseModel):
@@ -144,8 +179,51 @@ class CleaningTaskStatus(BaseModel):
     error: Optional[str] = None  # Set when failed
 
 
-# In-memory store for cleaning task statuses (reset on server restart)
+class CleaningTaskFull(BaseModel):
+    """Full cleaning task data for persistent storage and frontend restore"""
+    id: str  # Frontend task ID (e.g., task_1733556789)
+    backend_task_id: str  # Backend task ID (UUID)
+    files: List[str]  # Source filenames
+    config: CleaningConfigStored
+    status: Literal["queued", "processing", "completed", "failed"]
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    progress: int = 0
+    error: Optional[str] = None
+    created_at: str  # When task was created
+
+
+# Persistent task storage path
+CLEANING_TASKS_FILE = os.path.join(BASE_DIR, "cleaning_tasks.json")
+
+
+def load_cleaning_tasks() -> Dict[str, CleaningTaskFull]:
+    """Load cleaning tasks from persistent storage"""
+    if not os.path.exists(CLEANING_TASKS_FILE):
+        return {}
+    try:
+        with open(CLEANING_TASKS_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            # Convert dict entries to CleaningTaskFull objects
+            return {k: CleaningTaskFull(**v) for k, v in data.items()}
+    except Exception as e:
+        logger.error(f"Failed to load cleaning tasks: {e}")
+        return {}
+
+
+def save_cleaning_tasks(tasks: Dict[str, CleaningTaskFull]):
+    """Save cleaning tasks to persistent storage"""
+    try:
+        with open(CLEANING_TASKS_FILE, 'w', encoding='utf-8') as f:
+            # Convert Pydantic models to dicts
+            json.dump({k: v.model_dump() for k, v in tasks.items()}, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"Failed to save cleaning tasks: {e}")
+
+
+# In-memory store (synced with file)
 cleaning_task_statuses: Dict[str, CleaningTaskStatus] = {}
+cleaning_tasks_full: Dict[str, CleaningTaskFull] = {}
 
 
 # Global managers
@@ -169,7 +247,7 @@ def track_background_task(task: asyncio.Task):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle - startup and shutdown"""
-    global account_manager, browser_manager, scrape_manager, browser_event_manager, cleaning_service, shutdown_event
+    global account_manager, browser_manager, scrape_manager, browser_event_manager, cleaning_service, shutdown_event, cleaning_tasks_full
 
     # Startup
     print("Starting up XHS Scraper API...")
@@ -184,6 +262,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"WARNING: Failed to initialize database: {e}")
         print("Continuing without database (tracking disabled)")
+
+    # Load persistent cleaning tasks
+    cleaning_tasks_full = load_cleaning_tasks()
+    print(f"Loaded {len(cleaning_tasks_full)} cleaning tasks from storage")
+
+    # Mark any "processing" tasks as failed (server was restarted during processing)
+    for task_id, task in cleaning_tasks_full.items():
+        if task.status == "processing":
+            task.status = "failed"
+            task.error = "Server restarted during processing"
+            task.completed_at = datetime.now().isoformat()
+    save_cleaning_tasks(cleaning_tasks_full)
 
     account_manager = AccountManager()
     browser_manager = BrowserManager(account_manager)
@@ -756,13 +846,31 @@ async def start_cleaning(request: CleaningRequest):
 
     # Run cleaning in background task
     task_id = str(uuid.uuid4())
+    now = datetime.now().isoformat()
+
+    # Get frontend task ID or generate one
+    frontend_task_id = request.frontend_task_id or f"task_{int(datetime.now().timestamp() * 1000)}"
 
     # Initialize task status as processing
     cleaning_task_statuses[task_id] = CleaningTaskStatus(
         task_id=task_id,
         status="processing",
-        started_at=datetime.now().isoformat()
+        started_at=now
     )
+
+    # Save full task data for persistent storage (if frontend config provided)
+    if request.frontend_config:
+        cleaning_tasks_full[frontend_task_id] = CleaningTaskFull(
+            id=frontend_task_id,
+            backend_task_id=task_id,
+            files=request.source_files,
+            config=request.frontend_config,
+            status="processing",
+            started_at=now,
+            progress=10,
+            created_at=now
+        )
+        save_cleaning_tasks(cleaning_tasks_full)
 
     async def run_cleaning_task():
         try:
@@ -772,6 +880,7 @@ async def start_cleaning(request: CleaningRequest):
             result = await asyncio.to_thread(cleaning_service.clean_and_label, config)
             output_path = await asyncio.to_thread(cleaning_service.save_cleaned_result, result, config.output_filename)
             output_filename = os.path.basename(output_path)
+            completed_at = datetime.now().isoformat()
             logger.info(f"Cleaning task {task_id} completed: {output_path}")
 
             # Update status to completed
@@ -779,27 +888,50 @@ async def start_cleaning(request: CleaningRequest):
                 task_id=task_id,
                 status="completed",
                 started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=datetime.now().isoformat(),
+                completed_at=completed_at,
                 output_filename=output_filename
             )
+
+            # Update full task data
+            if frontend_task_id in cleaning_tasks_full:
+                cleaning_tasks_full[frontend_task_id].status = "completed"
+                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                cleaning_tasks_full[frontend_task_id].progress = 100
+                save_cleaning_tasks(cleaning_tasks_full)
+
         except asyncio.CancelledError:
+            completed_at = datetime.now().isoformat()
             logger.info(f"Cleaning task {task_id} cancelled")
             cleaning_task_statuses[task_id] = CleaningTaskStatus(
                 task_id=task_id,
                 status="failed",
                 started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=datetime.now().isoformat(),
+                completed_at=completed_at,
                 error="Task was cancelled"
             )
+            # Update full task data
+            if frontend_task_id in cleaning_tasks_full:
+                cleaning_tasks_full[frontend_task_id].status = "failed"
+                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                cleaning_tasks_full[frontend_task_id].error = "Task was cancelled"
+                save_cleaning_tasks(cleaning_tasks_full)
+
         except Exception as e:
+            completed_at = datetime.now().isoformat()
             logger.error(f"Cleaning task {task_id} failed: {e}")
             cleaning_task_statuses[task_id] = CleaningTaskStatus(
                 task_id=task_id,
                 status="failed",
                 started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=datetime.now().isoformat(),
+                completed_at=completed_at,
                 error=str(e)
             )
+            # Update full task data
+            if frontend_task_id in cleaning_tasks_full:
+                cleaning_tasks_full[frontend_task_id].status = "failed"
+                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                cleaning_tasks_full[frontend_task_id].error = str(e)
+                save_cleaning_tasks(cleaning_tasks_full)
 
     # Start task in background and track for cleanup
     cleaning_task = asyncio.create_task(run_cleaning_task())
@@ -808,6 +940,7 @@ async def start_cleaning(request: CleaningRequest):
     return {
         "success": True,
         "task_id": task_id,
+        "frontend_task_id": frontend_task_id,
         "message": "Cleaning task started. Results will be saved to cleaned_output/"
     }
 
@@ -822,6 +955,37 @@ async def get_cleaning_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return cleaning_task_statuses[task_id]
+
+
+@app.get("/api/cleaning/tasks", response_model=List[CleaningTaskFull])
+async def get_all_cleaning_tasks():
+    """
+    Get all cleaning tasks (for frontend restore on page refresh).
+    Returns tasks sorted by created_at descending (newest first).
+    """
+    tasks = list(cleaning_tasks_full.values())
+    # Sort by created_at descending
+    tasks.sort(key=lambda t: t.created_at, reverse=True)
+    return tasks
+
+
+@app.delete("/api/cleaning/tasks/{task_id}")
+async def delete_cleaning_task(task_id: str):
+    """
+    Delete a cleaning task from persistent storage.
+    Only allows deleting completed or failed tasks.
+    """
+    if task_id not in cleaning_tasks_full:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    task = cleaning_tasks_full[task_id]
+    if task.status == "processing":
+        raise HTTPException(status_code=400, detail="Cannot delete a processing task")
+
+    del cleaning_tasks_full[task_id]
+    save_cleaning_tasks(cleaning_tasks_full)
+
+    return {"success": True, "message": f"Task {task_id} deleted"}
 
 
 @app.get("/api/cleaning/results", response_model=List[CleanedResultFile])

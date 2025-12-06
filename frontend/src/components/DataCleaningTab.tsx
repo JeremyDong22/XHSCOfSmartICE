@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 2.0 - Applied consistent font-mono styling throughout page
-// Changes: Hero header uses font-mono for title, consistent typography across all sections
-// Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
+// Version: 2.3 - Removed debug console.log statements
+// Changes: Cleaned up logging after debugging cleaned results viewer
+// Previous: Added persistent task restore on page refresh
 
 'use client';
 
@@ -15,8 +15,11 @@ import {
   getCleaningTaskStatus,
   getCleanedResults,
   getCleanedResult,
+  getCleaningTasks,
   CleaningRequest,
   CleanedResultFile as ApiCleanedResultFile,
+  CleaningTaskFull,
+  CleaningConfigStored,
 } from '@/lib/api';
 
 export default function DataCleaningTab() {
@@ -37,6 +40,36 @@ export default function DataCleaningTab() {
   // Track polling intervals for cleanup - maps frontend task.id -> backend task_id
   const pollingIntervalsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const backendTaskIdsRef = useRef<Map<string, string>>(new Map());
+
+  // Helper: Convert backend task to frontend CleaningTask format
+  const convertBackendTask = useCallback((backendTask: CleaningTaskFull): CleaningTask => {
+    return {
+      id: backendTask.id,
+      files: backendTask.files,
+      config: {
+        filterBy: {
+          enabled: backendTask.config.filterBy.enabled,
+          metric: backendTask.config.filterBy.metric as 'likes' | 'collects' | 'comments',
+          operator: backendTask.config.filterBy.operator as 'gte' | 'lte' | 'gt' | 'lt',
+          value: backendTask.config.filterBy.value,
+        },
+        labelBy: {
+          enabled: backendTask.config.labelBy.enabled,
+          imageTarget: backendTask.config.labelBy.imageTarget as 'cover_image' | 'images' | null,
+          textTarget: backendTask.config.labelBy.textTarget as 'title' | 'content' | null,
+          labelCount: backendTask.config.labelBy.labelCount,
+          labels: backendTask.config.labelBy.labels,
+          prompt: backendTask.config.labelBy.prompt,
+        },
+        unifiedPrompt: backendTask.config.unifiedPrompt,
+      },
+      status: backendTask.status,
+      startedAt: backendTask.started_at ? new Date(backendTask.started_at) : undefined,
+      completedAt: backendTask.completed_at ? new Date(backendTask.completed_at) : undefined,
+      progress: backendTask.progress,
+      error: backendTask.error,
+    };
+  }, []);
 
   // Cleanup polling intervals on unmount
   useEffect(() => {
@@ -126,6 +159,33 @@ export default function DataCleaningTab() {
     await poll();
   }, [loadCleanedResults]);
 
+  // Load tasks from backend on mount (page refresh recovery)
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const backendTasks = await getCleaningTasks();
+        if (backendTasks.length === 0) return;
+
+        // Convert and set tasks
+        const convertedTasks = backendTasks.map(convertBackendTask);
+        setTasks(convertedTasks);
+
+        // Store backend task IDs for polling
+        backendTasks.forEach(bt => {
+          backendTaskIdsRef.current.set(bt.id, bt.backend_task_id);
+        });
+
+        // Note: We don't resume polling for "processing" tasks because the backend
+        // already marks them as failed on restart (server restart = task interrupted)
+        console.log(`Restored ${convertedTasks.length} tasks from backend`);
+      } catch (err) {
+        console.error('Failed to load tasks from backend:', err);
+      }
+    };
+
+    loadTasks();
+  }, [convertBackendTask]);
+
   // Handle task submission from washing machine - calls real backend API
   const handleTaskSubmit = useCallback(async (task: CleaningTask) => {
     // Add task to queue with queued status
@@ -135,8 +195,32 @@ export default function DataCleaningTab() {
     setSelectedFiles([]);
 
     // Build the cleaning request for the backend
-    // Filter labels to only include non-empty values
-    const filteredLabels = task.config.labelBy.labels.filter(l => l.trim().length > 0);
+    // Filter labels to only include entries with non-empty names
+    const filteredLabels = task.config.labelBy.labels
+      .filter(l => l.name.trim().length > 0)
+      .map(l => ({
+        name: l.name.trim(),
+        description: l.description.trim(),
+      }));
+
+    // Build frontend_config for persistent storage on backend
+    const frontendConfig: CleaningConfigStored = {
+      filterBy: {
+        enabled: task.config.filterBy.enabled,
+        metric: task.config.filterBy.metric,
+        operator: task.config.filterBy.operator,
+        value: task.config.filterBy.value,
+      },
+      labelBy: {
+        enabled: task.config.labelBy.enabled,
+        imageTarget: task.config.labelBy.imageTarget,
+        textTarget: task.config.labelBy.textTarget,
+        labelCount: task.config.labelBy.labelCount,
+        labels: task.config.labelBy.labels,
+        prompt: task.config.labelBy.prompt,
+      },
+      unifiedPrompt: task.config.unifiedPrompt,
+    };
 
     const request: CleaningRequest = {
       source_files: task.files,
@@ -148,9 +232,12 @@ export default function DataCleaningTab() {
       label_by: task.config.labelBy.enabled ? {
         image_target: task.config.labelBy.imageTarget,
         text_target: task.config.labelBy.textTarget,
-        categories: filteredLabels,
+        categories: filteredLabels,  // Now sends array of {name, description} objects
         prompt: task.config.unifiedPrompt,  // Use the output format prompt
       } : null,
+      // Add frontend task ID and config for persistent storage
+      frontend_task_id: task.id,
+      frontend_config: frontendConfig,
     };
 
     // Mark task as processing
