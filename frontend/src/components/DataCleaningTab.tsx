@@ -1,6 +1,6 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 1.6 - Fixed premature completion by polling backend task status
-// Changes: Poll /api/cleaning/tasks/{id}/status instead of marking completed immediately
+// Version: 1.7 - Updated to pass filtered labels array and unified prompt to backend
+// Changes: Filter empty labels before sending, use unifiedPrompt for Gemini instruction
 // Layout: Two-column grid (ScrapeResultsPanel | WashingMachine), then full-width Queue and Results below
 
 'use client';
@@ -135,6 +135,9 @@ export default function DataCleaningTab() {
     setSelectedFiles([]);
 
     // Build the cleaning request for the backend
+    // Filter labels to only include non-empty values
+    const filteredLabels = task.config.labelBy.labels.filter(l => l.trim().length > 0);
+
     const request: CleaningRequest = {
       source_files: task.files,
       filter_by: task.config.filterBy.enabled ? {
@@ -145,8 +148,8 @@ export default function DataCleaningTab() {
       label_by: task.config.labelBy.enabled ? {
         image_target: task.config.labelBy.imageTarget,
         text_target: task.config.labelBy.textTarget,
-        categories: task.config.labelBy.labels,
-        prompt: task.config.labelBy.prompt,
+        categories: filteredLabels,
+        prompt: task.config.unifiedPrompt,  // Use the output format prompt
       } : null,
     };
 

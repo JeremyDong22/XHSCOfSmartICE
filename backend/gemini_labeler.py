@@ -1,14 +1,14 @@
 # Gemini Flash Image and Content Labeling Module
-# Version: 1.0 - Initial implementation for XHS post categorization
-# Changes: Created Gemini API integration with flexible prompt engineering for multi-modal labeling
-# - Supports multiple labeling modes (cover image, all images, title, content, combinations)
-# - Uses gemini-flash-latest model with system instructions for structured JSON output
-# - Handles safety settings, error handling, and image downloading
-# - Provides batch labeling with user-defined categories
+# Version: 1.4 - Fully transparent prompting - User controls entire prompt
+# Changes:
+# - User's prompt from UI is passed directly to Gemini (no modifications except adding categories)
+# - No hidden system prompts or JSON format injection
+# - Flexible JSON parsing supports multiple response formats (label, labels, category)
+# - User must include their own JSON format instruction in their prompt
 #
 # Features:
 # - Supports multiple labeling modes: cover image, all images, title, content, or combinations
-# - Flexible categorization with user-defined prompts
+# - Transparent prompting - what you see in UI is what Gemini sees
 # - Structured JSON output with labels, confidence, and reasoning
 # - Error handling and retry logic for API calls
 
@@ -67,13 +67,13 @@ class GeminiLabeler:
     based on images (cover or all), text (title or content), or combinations.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-flash-latest"):
+    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"):
         """
         Initialize Gemini labeler with API key.
 
         Args:
             api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
-            model_name: Gemini model to use (default: gemini-flash-latest)
+            model_name: Gemini model to use (default: gemini-2.0-flash)
         """
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
@@ -83,80 +83,32 @@ class GeminiLabeler:
         genai.configure(api_key=self.api_key)
         self.model_name = model_name
 
-        # Create model with system instruction for output format
-        system_instruction = self._build_system_prompt()
-        self.model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_instruction
-        )
+        # Create model WITHOUT system instruction - everything is transparent
+        self.model = genai.GenerativeModel(model_name=model_name)
 
-        logger.info(f"Initialized GeminiLabeler with model: {model_name}")
+        logger.info(f"Initialized GeminiLabeler with model: {model_name} (no hidden system prompt)")
 
-    def _build_system_prompt(self) -> str:
+    def _build_prompt(self, categories: List[str], user_prompt: str) -> str:
         """
-        Build the system instruction for output format.
+        Build the full prompt combining user's prompt with categories.
 
-        Returns:
-            System prompt string defining JSON output format
-        """
-        return """You are an expert content categorization assistant. Analyze the provided content and categorize it according to the user's instructions.
-
-CRITICAL: You MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON.
-
-Your response MUST follow this exact JSON structure:
-{
-  "labels": {
-    "cover_image_label": "Category Name",
-    "title_label": "Category Name",
-    "content_label": "Category Name",
-    "images_label": "Category Name"
-  },
-  "confidence": 0.95,
-  "reasoning": "Brief explanation of why you chose these categories"
-}
-
-Rules:
-- Only include label fields that are relevant to the analysis mode
-- confidence should be between 0.0 and 1.0
-- reasoning should be 1-2 sentences maximum
-- All category names must exactly match one of the categories provided by the user
-- If uncertain, choose the closest matching category and lower the confidence score"""
-
-    def _build_categorization_prompt(self, categories: List[str], mode: LabelingMode) -> str:
-        """
-        Build the user-defined categorization prompt.
+        FULLY TRANSPARENT - only adds categories list to user's prompt.
+        User controls the entire prompt including JSON format instruction.
 
         Args:
-            categories: List of category descriptions (e.g., ["Single Dish - One main item", "Multiple Dishes - Multiple items"])
-            mode: Labeling mode to determine what to analyze
+            categories: List of category labels
+            user_prompt: User's custom prompt from the UI (should include JSON format)
 
         Returns:
-            Categorization prompt string
+            Complete prompt string
         """
-        mode_instructions = {
-            LabelingMode.COVER_IMAGE: "Analyze the cover image and categorize it.",
-            LabelingMode.ALL_IMAGES: "Analyze all provided images and categorize them collectively.",
-            LabelingMode.TITLE: "Analyze the title text and categorize it.",
-            LabelingMode.CONTENT: "Analyze the content text and categorize it.",
-            LabelingMode.TITLE_CONTENT: "Analyze both the title and content text and categorize them.",
-            LabelingMode.COVER_IMAGE_TITLE: "Analyze the cover image and title together and categorize them.",
-            LabelingMode.COVER_IMAGE_CONTENT: "Analyze the cover image and content text together and categorize them.",
-            LabelingMode.ALL_IMAGES_TITLE: "Analyze all images and title together and categorize them.",
-            LabelingMode.ALL_IMAGES_CONTENT: "Analyze all images and content text together and categorize them.",
-            LabelingMode.FULL: "Analyze all images, title, and content together and categorize them."
-        }
+        # Format categories as a simple list
+        categories_list = "\n".join([f"- {cat}" for cat in categories])
 
-        instruction = mode_instructions.get(mode, "Analyze the provided content and categorize it.")
+        return f"""{user_prompt}
 
-        # Format categories list
-        categories_text = "\n".join([f"{i+1}. {cat}" for i, cat in enumerate(categories)])
-
-        return f"""{instruction}
-
-Available categories:
-{categories_text}
-
-Choose the most appropriate category based on the content provided."""
+CATEGORIES:
+{categories_list}"""
 
     def _download_image(self, url: str) -> Optional[Image.Image]:
         """
@@ -240,7 +192,7 @@ Choose the most appropriate category based on the content provided."""
             response_text: Raw response text from Gemini
 
         Returns:
-            Parsed JSON dictionary
+            Parsed JSON dictionary (extracts first item if array is returned)
         """
         # Try to extract JSON if wrapped in markdown code blocks
         text = response_text.strip()
@@ -257,7 +209,14 @@ Choose the most appropriate category based on the content provided."""
         text = text.strip()
 
         try:
-            return json.loads(text)
+            result = json.loads(text)
+            # Handle array responses - extract first item
+            if isinstance(result, list):
+                if len(result) > 0:
+                    return result[0]
+                else:
+                    return {}
+            return result
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Raw response: {response_text}")
@@ -267,15 +226,17 @@ Choose the most appropriate category based on the content provided."""
         self,
         post: Dict[str, Any],
         categories: List[str],
-        mode: LabelingMode = LabelingMode.COVER_IMAGE
+        mode: LabelingMode = LabelingMode.COVER_IMAGE,
+        user_prompt: str = "Classify this image into one of the categories below."
     ) -> LabelingResult:
         """
         Label a single XHS post using Gemini 2.0 Flash.
 
         Args:
             post: XHS post dictionary (must have note_id)
-            categories: List of category descriptions
+            categories: List of category labels
             mode: Labeling mode (what to analyze)
+            user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
 
         Returns:
             LabelingResult with labels, confidence, and reasoning
@@ -283,11 +244,11 @@ Choose the most appropriate category based on the content provided."""
         note_id = post.get("note_id", "unknown")
 
         try:
-            # Build prompts
-            categorization_prompt = self._build_categorization_prompt(categories, mode)
+            # Build the TRANSPARENT prompt - user's prompt + categories + JSON format
+            full_prompt = self._build_prompt(categories, user_prompt)
 
             # Prepare content parts
-            content_parts = self._prepare_content_parts(post, mode, categorization_prompt)
+            content_parts = self._prepare_content_parts(post, mode, full_prompt)
 
             # Generate content with system instruction
             generation_config = genai.types.GenerationConfig(
@@ -327,15 +288,35 @@ Choose the most appropriate category based on the content provided."""
 
             result_json = self._parse_json_response(response_text)
 
-            # Validate structure
-            if "labels" not in result_json or "confidence" not in result_json or "reasoning" not in result_json:
-                raise ValueError(f"Response missing required fields: {result_json}")
+            # Flexibly extract labels - support multiple formats
+            labels = {}
+            if "labels" in result_json:
+                # Format: {"labels": {"cover_image_label": "..."}} or {"labels": "..."}
+                if isinstance(result_json["labels"], dict):
+                    labels = result_json["labels"]
+                else:
+                    labels = {"label": result_json["labels"]}
+            elif "label" in result_json:
+                # Format: {"label": "..."}
+                labels = {"label": result_json["label"]}
+            elif "category" in result_json:
+                # Format: {"category": "..."}
+                labels = {"label": result_json["category"]}
+
+            # Extract confidence (default to 0.8 if not provided)
+            confidence = float(result_json.get("confidence", 0.8))
+            # Normalize if 0-100 scale
+            if confidence > 1.0:
+                confidence = confidence / 100.0
+
+            # Extract reasoning (optional)
+            reasoning = result_json.get("reasoning", result_json.get("explanation", ""))
 
             return LabelingResult(
                 note_id=note_id,
-                labels=result_json["labels"],
-                confidence=float(result_json["confidence"]),
-                reasoning=result_json["reasoning"]
+                labels=labels,
+                confidence=confidence,
+                reasoning=reasoning
             )
 
         except Exception as e:
@@ -353,6 +334,7 @@ Choose the most appropriate category based on the content provided."""
         posts: List[Dict[str, Any]],
         categories: List[str],
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
+        user_prompt: str = "Classify this image into one of the categories below.",
         max_posts: Optional[int] = None
     ) -> List[LabelingResult]:
         """
@@ -362,6 +344,7 @@ Choose the most appropriate category based on the content provided."""
             posts: List of XHS post dictionaries
             categories: List of category descriptions
             mode: Labeling mode (what to analyze)
+            user_prompt: Custom prompt from the UI (TRANSPARENT - sent directly to Gemini)
             max_posts: Maximum number of posts to process (None = all)
 
         Returns:
@@ -373,7 +356,7 @@ Choose the most appropriate category based on the content provided."""
         results = []
         for idx, post in enumerate(posts):
             logger.info(f"Processing post {idx + 1}/{len(posts)}: {post.get('note_id', 'unknown')}")
-            result = self.label_post(post, categories, mode)
+            result = self.label_post(post, categories, mode, user_prompt)
             results.append(result)
 
         return results

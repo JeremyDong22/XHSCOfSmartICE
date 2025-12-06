@@ -1,6 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 1.0 - Initial implementation for cleaning and labeling XHS scrape results
-# Changes: Created service for filtering, labeling, and combining multiple JSON scrape results
+# Version: 1.1 - Transparent prompting - UI prompt passed directly to Gemini
+# Changes: Now passes user's prompt from UI through to GeminiLabeler for transparent prompting
+# - User's categorization prompt is sent directly to Gemini (no hidden system prompts)
 # - Integrates GeminiLabeler for multi-modal categorization
 # - Supports filterBy conditions (likes, collects, comments) to reduce API calls
 # - Supports labelBy with imageTarget/textTarget combinations
@@ -186,11 +187,12 @@ class DataCleaningService:
         mode = label_condition.to_labeling_mode()
         logger.info(f"Starting labeling with mode: {mode.value}")
 
-        # Run batch labeling
+        # Run batch labeling - pass user's prompt directly to Gemini (transparent prompting)
         results: List[LabelingResult] = self.labeler.label_posts_batch(
             posts=posts,
             categories=label_condition.categories,
-            mode=mode
+            mode=mode,
+            user_prompt=label_condition.prompt
         )
 
         # Merge labels back into posts

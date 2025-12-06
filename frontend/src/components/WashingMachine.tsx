@@ -1,8 +1,9 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 1.5 - Changed default label count from 3 to 2
-// Features: Label By with Image Analysis (cover/all images) and Text Analysis (title/title+content)
-// Contains unified prompt + flexible prompt editors, and queue submission
-// Previous: Split Label By into two mutually-exclusive groups; updated LabelByConfig interface
+// Version: 1.7 - Removed non-functional options that require detail scraping
+// Changes: Removed "All Images" and "Title + Content" options since scraper only collects
+// search results data (cover image, title, likes). These features would require scraping
+// individual post pages to get content text and all carousel images.
+// Features: Label By with Image Analysis (cover image only) and Text Analysis (title only)
 
 'use client';
 
@@ -56,39 +57,66 @@ export default function WashingMachine({
   onTaskSubmit,
   disabled = false,
 }: WashingMachineProps) {
-  // Label By state
+  // Label By state - labels array initialized with empty strings based on labelCount
   const [labelBy, setLabelBy] = useState<LabelByConfig>({
     enabled: false,
     imageTarget: null,
     textTarget: null,
     labelCount: 2,
-    labels: [],
+    labels: ['', ''],  // Initialize with empty strings matching labelCount
     prompt: '',
   });
 
-  // Unified prompt state
+  // Unified prompt state - changed "Content Analyzer" to "Content Labeler"
   const [unifiedPrompt, setUnifiedPrompt] = useState(
-    'You are a content analyzer. Analyze the provided content and output your categorization in a structured JSON format with the following fields: { "label": "<category>", "confidence": <0-1>, "reasoning": "<brief explanation>" }'
+    'You are a content labeler. Analyze the provided content and output your categorization in a structured JSON format with the following fields: { "label": "<category>", "confidence": <0-1>, "reasoning": "<brief explanation>" }'
   );
 
-  // Dynamic placeholder based on labelCount
-  const exampleCategories = [
-    'Single Food Item',
-    'Multiple Food Items',
-    'Lifestyle Scene',
-    'Product Shot',
-    'Recipe Tutorial',
+  // Example placeholder labels for each input box
+  const exampleLabels = [
+    'single_food',
+    'multiple_food',
+    'lifestyle',
+    'product',
+    'tutorial',
   ];
 
-  const placeholderText = useMemo(() => {
-    const categories = exampleCategories.slice(0, labelBy.labelCount);
-    return `List your categories here, e.g.:\n${categories.map((cat, idx) => `${idx + 1}. ${cat}`).join('\n')}`;
-  }, [labelBy.labelCount]);
+  // Handle label count change - resize labels array
+  const handleLabelCountChange = (newCount: number) => {
+    const newLabels = [...labelBy.labels];
+    // Expand or shrink the array
+    while (newLabels.length < newCount) {
+      newLabels.push('');
+    }
+    while (newLabels.length > newCount) {
+      newLabels.pop();
+    }
+    setLabelBy({ ...labelBy, labelCount: newCount, labels: newLabels });
+  };
+
+  // Handle individual label input change
+  const handleLabelChange = (index: number, value: string) => {
+    const newLabels = [...labelBy.labels];
+    newLabels[index] = value;
+    // Also update the prompt field with all non-empty labels for backend compatibility
+    const nonEmptyLabels = newLabels.filter(l => l.trim());
+    setLabelBy({ ...labelBy, labels: newLabels, prompt: nonEmptyLabels.join(', ') });
+  };
+
+  // Check if all label fields are filled
+  const allLabelsFilled = useMemo(() => {
+    return labelBy.labels.slice(0, labelBy.labelCount).every(l => l.trim().length > 0);
+  }, [labelBy.labels, labelBy.labelCount]);
+
+  // Get filled labels count
+  const filledLabelsCount = useMemo(() => {
+    return labelBy.labels.slice(0, labelBy.labelCount).filter(l => l.trim().length > 0).length;
+  }, [labelBy.labels, labelBy.labelCount]);
 
   // Validation
   const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null;
   const isValid = selectedFiles.length > 0 && labelBy.enabled && hasAtLeastOneTarget;
-  const hasLabelPrompt = !labelBy.enabled || (labelBy.prompt.trim().length > 0);
+  const hasLabelPrompt = !labelBy.enabled || allLabelsFilled;
 
   // Generate task and submit
   const handleSubmit = () => {
@@ -174,13 +202,12 @@ export default function WashingMachine({
               </div>
             )}
 
-            {/* Image Analysis Group */}
+            {/* Image Analysis Group - Only Cover Image available (All Images requires detail scraping) */}
             <div className="mb-4">
               <label className="block text-xs text-stone-500 mb-2">Image Analysis:</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 {[
                   { value: 'cover_image' as const, label: 'Cover Image' },
-                  { value: 'images' as const, label: 'All Images' },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -201,13 +228,12 @@ export default function WashingMachine({
               </div>
             </div>
 
-            {/* Text Analysis Group */}
+            {/* Text Analysis Group - Only Title available (Content requires detail scraping) */}
             <div className="mb-4">
               <label className="block text-xs text-stone-500 mb-2">Text Analysis:</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2">
                 {[
-                  { value: 'title' as const, label: 'Title Only' },
-                  { value: 'content' as const, label: 'Title + Content' },
+                  { value: 'title' as const, label: 'Title' },
                 ].map((option) => (
                   <button
                     key={option.value}
@@ -228,7 +254,7 @@ export default function WashingMachine({
               </div>
             </div>
 
-            {/* Label count */}
+            {/* Label count selector */}
             <div className="mb-4">
               <label className="block text-xs text-stone-500 mb-2">
                 How many labels/categories?
@@ -239,7 +265,7 @@ export default function WashingMachine({
                   min={2}
                   max={5}
                   value={labelBy.labelCount}
-                  onChange={(e) => setLabelBy({ ...labelBy, labelCount: parseInt(e.target.value) })}
+                  onChange={(e) => handleLabelCountChange(parseInt(e.target.value))}
                   disabled={!labelBy.enabled}
                   className="flex-1"
                 />
@@ -249,23 +275,40 @@ export default function WashingMachine({
               </div>
             </div>
 
-            {/* Flexible Prompt */}
+            {/* Dynamic Label Input Boxes */}
             <div>
-              <label className="block text-xs text-stone-500 mb-2">
-                Categorization Prompt
-                <span className="text-stone-600 ml-2">(Define your labels and criteria)</span>
-              </label>
-              <textarea
-                value={labelBy.prompt}
-                onChange={(e) => setLabelBy({ ...labelBy, prompt: e.target.value })}
-                placeholder={placeholderText}
-                disabled={!labelBy.enabled}
-                rows={5}
-                className="w-full px-3 py-2 bg-stone-800 border border-stone-700 rounded-lg text-sm text-stone-200 placeholder:text-stone-600 resize-none disabled:opacity-50"
-              />
-              {labelBy.enabled && !labelBy.prompt.trim() && (
-                <p className="mt-1 text-xs text-amber-400/70">
-                  Please define your categorization labels and criteria
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-stone-500">
+                  Define your {labelBy.labelCount} categories:
+                </label>
+                <span className={`text-xs ${allLabelsFilled ? 'text-emerald-400' : 'text-amber-400/70'}`}>
+                  {filledLabelsCount}/{labelBy.labelCount} filled
+                </span>
+              </div>
+              <div className="space-y-2">
+                {Array.from({ length: labelBy.labelCount }).map((_, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="w-6 h-6 flex items-center justify-center rounded-full bg-stone-800 text-xs text-stone-400 flex-shrink-0">
+                      {index + 1}
+                    </span>
+                    <input
+                      type="text"
+                      value={labelBy.labels[index] || ''}
+                      onChange={(e) => handleLabelChange(index, e.target.value)}
+                      placeholder={`e.g., ${exampleLabels[index] || 'category_name'}`}
+                      disabled={!labelBy.enabled}
+                      className={`flex-1 px-3 py-2 bg-stone-800 border rounded-lg text-sm text-stone-200 placeholder:text-stone-600 disabled:opacity-50 transition-colors ${
+                        labelBy.labels[index]?.trim()
+                          ? 'border-[rgba(16,185,129,0.3)]'
+                          : 'border-stone-700'
+                      }`}
+                    />
+                  </div>
+                ))}
+              </div>
+              {labelBy.enabled && !allLabelsFilled && (
+                <p className="mt-2 text-xs text-amber-400/70">
+                  Please fill in all {labelBy.labelCount} category names
                 </p>
               )}
             </div>
@@ -323,6 +366,11 @@ export default function WashingMachine({
         {!isValid && selectedFiles.length > 0 && labelBy.enabled && !hasAtLeastOneTarget && (
           <p className="mt-2 text-xs text-center text-stone-500">
             Select at least one analysis target (Image or Text)
+          </p>
+        )}
+        {isValid && !allLabelsFilled && (
+          <p className="mt-2 text-xs text-center text-amber-400/70">
+            Fill in all {labelBy.labelCount} category names ({filledLabelsCount}/{labelBy.labelCount} done)
           </p>
         )}
       </div>
