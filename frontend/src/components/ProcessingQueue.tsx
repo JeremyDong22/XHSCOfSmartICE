@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.8 - UI localization to Chinese
-// Changes: All labels, buttons, and messages translated to Chinese
-// Previous: Added rate_limited status styling and warning display
+// Version: 1.9 - Added delete button for completed/failed tasks
+// Changes: Added onDeleteTask prop and delete button UI for task history
+// Previous: UI localization to Chinese
 
 'use client';
 
@@ -12,6 +12,7 @@ import { subscribeToCleaningLogs } from '@/lib/api';
 interface ProcessingQueueProps {
   tasks: CleaningTask[];
   onCancelTask?: (taskId: string) => void;
+  onDeleteTask?: (taskId: string) => void;
   // Map of frontend task ID to backend task ID (for SSE subscription)
   backendTaskIds?: Map<string, string>;
 }
@@ -105,10 +106,12 @@ function StatusBadge({ status }: { status: CleaningTask['status'] }) {
 function TaskCard({
   task,
   onCancel,
+  onDelete,
   backendTaskId,
 }: {
   task: CleaningTask;
   onCancel?: () => void;
+  onDelete?: () => void;
   backendTaskId?: string;
 }) {
   const [elapsedTime, setElapsedTime] = useState('—');
@@ -194,19 +197,35 @@ function TaskCard({
           <StatusBadge status={task.status} />
           <span className="text-xs text-stone-500 font-mono">{task.id}</span>
         </div>
-        {task.status === 'processing' && onCancel && (
-          <button
-            onClick={onCancel}
-            className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)] transition-colors"
-            title="停止处理"
-          >
-            {/* Stop sign (octagon) icon */}
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2zM8 7v10h8V7H8z" />
-            </svg>
-            停止
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Stop button for processing tasks */}
+          {task.status === 'processing' && onCancel && (
+            <button
+              onClick={onCancel}
+              className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded bg-[rgba(239,68,68,0.1)] hover:bg-[rgba(239,68,68,0.2)] transition-colors"
+              title="停止处理"
+            >
+              {/* Stop sign (octagon) icon */}
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2zM8 7v10h8V7H8z" />
+              </svg>
+              停止
+            </button>
+          )}
+          {/* Delete button for completed/failed/rate_limited tasks */}
+          {(task.status === 'completed' || task.status === 'failed' || task.status === 'rate_limited') && onDelete && (
+            <button
+              onClick={onDelete}
+              className="p-1.5 text-stone-500 hover:text-red-400 rounded hover:bg-[rgba(239,68,68,0.1)] transition-colors"
+              title="删除记录"
+            >
+              {/* Trash icon */}
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Operations summary */}
@@ -315,7 +334,7 @@ function TaskCard({
   );
 }
 
-export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }: ProcessingQueueProps) {
+export default function ProcessingQueue({ tasks, onCancelTask, onDeleteTask, backendTaskIds }: ProcessingQueueProps) {
   // Separate tasks by status
   const processingTasks = tasks.filter(t => t.status === 'processing');
   const queuedTasks = tasks.filter(t => t.status === 'queued');
@@ -379,6 +398,7 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
                 key={task.id}
                 task={task}
                 onCancel={onCancelTask ? () => onCancelTask(task.id) : undefined}
+                onDelete={onDeleteTask ? () => onDeleteTask(task.id) : undefined}
                 backendTaskId={backendTaskIds?.get(task.id)}
               />
             ))}
@@ -401,6 +421,7 @@ export default function ProcessingQueue({ tasks, onCancelTask, backendTaskIds }:
               <TaskCard
                 key={task.id}
                 task={task}
+                onDelete={onDeleteTask ? () => onDeleteTask(task.id) : undefined}
                 backendTaskId={backendTaskIds?.get(task.id)}
               />
             ))}

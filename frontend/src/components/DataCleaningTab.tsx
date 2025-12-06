@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 2.8 - UI localization to Chinese
-// Changes: All labels and messages translated to Chinese
-// Previous: Added rate_limited status handling for Gemini API quota
+// Version: 2.9 - Added real cancel and delete task functionality
+// Changes: handleCancelTask now calls backend API to cancel running tasks
+// Previous: UI localization to Chinese
 
 'use client';
 
@@ -17,6 +17,8 @@ import {
   getCleanedResult,
   getCleaningTasks,
   getAccounts,
+  cancelCleaningTask,
+  deleteCleaningTask,
   Account,
   CleaningRequest,
   CleanedResultFile as ApiCleanedResultFile,
@@ -289,16 +291,50 @@ export default function DataCleaningTab() {
     }
   }, [pollTaskStatus]);
 
-  // Handle task cancellation
-  const handleCancelTask = useCallback((taskId: string) => {
+  // Handle task cancellation - calls backend API to stop running task
+  const handleCancelTask = useCallback(async (taskId: string) => {
+    // Get the backend task ID
+    const backendTaskId = backendTaskIdsRef.current.get(taskId);
+
+    if (backendTaskId) {
+      try {
+        // Call backend API to cancel the task
+        await cancelCleaningTask(backendTaskId);
+        console.log(`Cancelled task ${taskId} (backend: ${backendTaskId})`);
+      } catch (err) {
+        console.error('Failed to cancel task:', err);
+        // Still continue with frontend cleanup
+      }
+    }
+
     // Stop polling for this task
     const interval = pollingIntervalsRef.current.get(taskId);
     if (interval) {
       clearInterval(interval);
       pollingIntervalsRef.current.delete(taskId);
     }
-    backendTaskIdsRef.current.delete(taskId);
 
+    // Mark task as failed in UI (instead of removing)
+    setTasks(prev => prev.map(t =>
+      t.id === taskId
+        ? { ...t, status: 'failed' as const, error: 'Cancelled by user', completedAt: new Date() }
+        : t
+    ));
+  }, []);
+
+  // Handle task deletion - removes completed/failed tasks from history
+  const handleDeleteTask = useCallback(async (taskId: string) => {
+    try {
+      // Call backend API to delete from persistent storage
+      await deleteCleaningTask(taskId);
+      console.log(`Deleted task ${taskId}`);
+    } catch (err) {
+      console.error('Failed to delete task from backend:', err);
+      // Still remove from frontend
+    }
+
+    // Remove from frontend state
+    backendTaskIdsRef.current.delete(taskId);
     setTasks(prev => prev.filter(t => t.id !== taskId));
   }, []);
 
@@ -409,6 +445,7 @@ export default function DataCleaningTab() {
         <ProcessingQueue
           tasks={tasks}
           onCancelTask={handleCancelTask}
+          onDeleteTask={handleDeleteTask}
           backendTaskIds={backendTaskIdsRef.current}
         />
 

@@ -1,11 +1,9 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 3.2 - Fixed hot-reload hanging issue with SSE connections
+# Version: 3.4 - Fixed rate_limited status Pydantic validation
 # Changes:
-# - Reduced SSE timeout periods from 30s/5s/1s to 2s/1s/0.5s for faster shutdown detection
-# - Added immediate shutdown checks after queue.get() operations in all SSE endpoints
-# - Reduced browser close timeout from 5s to 2s during shutdown for faster hot-reload
-# - Added 0.5s timeout for background task cancellation to prevent hanging
-# Previous: Food industry refactor with binary classification and style labels
+# - Added "rate_limited" to CleaningTaskStatus and CleaningTaskFull Literal types
+# - Fixed SSE status check to include rate_limited status
+# Previous: Added cancel cleaning task endpoint
 
 import os
 import json
@@ -168,7 +166,7 @@ class CleanedResultFile(BaseModel):
 class CleaningTaskStatus(BaseModel):
     """Status of a cleaning task for frontend polling"""
     task_id: str
-    status: Literal["pending", "processing", "completed", "failed"]
+    status: Literal["pending", "processing", "completed", "failed", "rate_limited"]
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     output_filename: Optional[str] = None  # Set when completed
@@ -181,7 +179,7 @@ class CleaningTaskFull(BaseModel):
     backend_task_id: str  # Backend task ID (UUID)
     files: List[str]  # Source filenames
     config: CleaningConfigStored
-    status: Literal["queued", "processing", "completed", "failed"]
+    status: Literal["queued", "processing", "completed", "failed", "rate_limited"]
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     progress: int = 0
@@ -230,6 +228,8 @@ def save_cleaning_tasks(tasks: Dict[str, CleaningTaskFull]):
 # In-memory store (synced with file)
 cleaning_task_statuses: Dict[str, CleaningTaskStatus] = {}
 cleaning_tasks_full: Dict[str, CleaningTaskFull] = {}
+# Track running cleaning tasks for cancellation - maps backend_task_id -> asyncio.Task
+cleaning_running_tasks: Dict[str, asyncio.Task] = {}
 
 # Cleaning task log queues - maps task_id -> list of subscriber queues
 cleaning_log_queues: Dict[str, List[asyncio.Queue]] = {}
@@ -1066,6 +1066,13 @@ async def start_cleaning(request: CleaningRequest):
     # Start task in background and track for cleanup
     cleaning_task = asyncio.create_task(run_cleaning_task())
     track_background_task(cleaning_task)
+    # Track for cancellation
+    cleaning_running_tasks[task_id] = cleaning_task
+
+    # Remove from running tasks when done
+    def on_task_done(t):
+        cleaning_running_tasks.pop(task_id, None)
+    cleaning_task.add_done_callback(on_task_done)
 
     return {
         "success": True,
@@ -1085,6 +1092,55 @@ async def get_cleaning_task_status(task_id: str):
         raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
 
     return cleaning_task_statuses[task_id]
+
+
+@app.post("/api/cleaning/tasks/{task_id}/cancel")
+async def cancel_cleaning_task(task_id: str):
+    """
+    Cancel a running cleaning task.
+    This will cancel the asyncio task and mark it as failed.
+    """
+    # Check if task exists
+    if task_id not in cleaning_task_statuses:
+        raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+
+    # Check if task is running
+    status = cleaning_task_statuses[task_id]
+    if status.status != "processing":
+        raise HTTPException(status_code=400, detail=f"Task is not running (status: {status.status})")
+
+    # Cancel the running task
+    if task_id in cleaning_running_tasks:
+        running_task = cleaning_running_tasks[task_id]
+        if not running_task.done():
+            running_task.cancel()
+            logger.info(f"Cancelled cleaning task {task_id}")
+            send_cleaning_log(task_id, "✗ Task cancelled by user")
+
+            # Update status immediately (the task's CancelledError handler will also update)
+            completed_at = datetime.now().isoformat()
+            cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                task_id=task_id,
+                status="failed",
+                started_at=status.started_at,
+                completed_at=completed_at,
+                error="Cancelled by user"
+            )
+
+            # Update full task data - find by backend_task_id
+            for frontend_id, task_full in cleaning_tasks_full.items():
+                if task_full.backend_task_id == task_id:
+                    task_full.status = "failed"
+                    task_full.completed_at = completed_at
+                    task_full.error = "Cancelled by user"
+                    save_cleaning_tasks(cleaning_tasks_full)
+                    break
+
+            return {"success": True, "message": "Task cancelled"}
+        else:
+            return {"success": False, "message": "Task already completed"}
+    else:
+        raise HTTPException(status_code=400, detail="Task not found in running tasks")
 
 
 @app.get("/api/cleaning/logs/{task_id}")
@@ -1131,9 +1187,9 @@ async def cleaning_logs(task_id: str):
                     # Send keepalive
                     yield f": keepalive\n\n"
 
-                    # Check if task is done
+                    # Check if task is done (completed, failed, or rate_limited)
                     status = cleaning_task_statuses.get(task_id)
-                    if status and status.status in ["completed", "failed"]:
+                    if status and status.status in ["completed", "failed", "rate_limited"]:
                         yield f"data: {json.dumps({'type': 'status', 'status': status.status})}\n\n"
                         break
 

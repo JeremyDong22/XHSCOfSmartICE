@@ -1,10 +1,8 @@
 // API client for XHS Multi-Account Scraper
-// Version: 2.1 - Food industry refactor: binary classification with style labels
+// Version: 2.2 - Added cancel cleaning task API
 // Changes:
-// - Updated LabelByRequest to use user_description and full_prompt instead of categories
-// - Updated CleanedPost to include label and style_label fields
-// - Updated LabelByConfigStored to match new structure
-// Previous: Added SSE streaming for cleaning task logs
+// - Added cancelCleaningTask function to stop running cleaning tasks
+// Previous: Food industry refactor with binary classification and style labels
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -467,6 +465,17 @@ export async function deleteCleaningTask(taskId: string): Promise<void> {
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.detail || 'Failed to delete cleaning task');
+  }
+}
+
+// Cancel a running cleaning task
+export async function cancelCleaningTask(backendTaskId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/cleaning/tasks/${backendTaskId}/cancel`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Failed to cancel cleaning task');
   }
 }
 
