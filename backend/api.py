@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 3.6 - Fixed parallel scraping with proper timeouts
-# Changes: Fixed parallel scraping, added graceful shutdown timeout support
-# Previous: Added include_likes field to LabelByRequest and LabelByConfigStored
+# Version: 3.7 - Added concurrent AI labeling support
+# Changes: Added max_concurrency parameter to CleaningRequest for parallel Gemini API calls
+# Previous: v3.6 - Fixed parallel scraping with proper timeouts
 
 import os
 import json
@@ -145,6 +145,7 @@ class CleaningRequest(BaseModel):
     filter_by: Optional[FilterByRequest] = None
     label_by: Optional[LabelByRequest] = None
     output_filename: Optional[str] = None
+    max_concurrency: int = 5  # Number of parallel Gemini API calls (1-20)
     # Frontend task tracking fields for persistent storage
     frontend_task_id: Optional[str] = None  # e.g., "task_1733556789"
     frontend_config: Optional[CleaningConfigStored] = None  # Full frontend config for restore
@@ -915,10 +916,11 @@ async def start_cleaning(request: CleaningRequest):
             raise HTTPException(status_code=404, detail=f"Source file not found: {filename}")
         source_paths.append(filepath)
 
-    # Build config
+    # Build config with concurrency setting
     config = CleaningConfig(
         source_files=source_paths,
-        output_filename=request.output_filename
+        output_filename=request.output_filename,
+        max_concurrency=min(max(request.max_concurrency, 1), 20)  # Clamp between 1-20
     )
 
     # Add filter if provided

@@ -1,9 +1,10 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 3.1 - Updated label values from 是/否 to 满足/不满足
-# Changes: Changed binary labels to clearer Chinese terms for UI display
-# Previous: v3.0 - Switched from direct Gemini SDK to OpenRouter API
+# Version: 4.0 - Added concurrent batch processing with ThreadPoolExecutor
+# Changes: Added max_concurrency parameter for parallel API calls, progress tracking for concurrent jobs
+# Previous: v3.1 - Updated label values from 是/否 to 满足/不满足
 #
 # Features:
+# - Concurrent batch processing with configurable parallelism (default: 5)
 # - Binary content matching (满足/不满足) based on user description
 # - Fixed image style classification (特写图/环境图/拼接图/信息图)
 # - Optional likes count inclusion in analysis
@@ -18,6 +19,8 @@ import os
 import json
 import logging
 import base64
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional, Literal, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
@@ -424,10 +427,11 @@ Output your analysis in this exact JSON format:
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
         max_posts: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
-        include_likes: bool = False
+        include_likes: bool = False,
+        max_concurrency: int = 5
     ) -> List[LabelingResult]:
         """
-        Label multiple XHS posts in batch with binary classification.
+        Label multiple XHS posts in batch with concurrent processing.
 
         Args:
             posts: List of XHS post dictionaries
@@ -436,42 +440,107 @@ Output your analysis in this exact JSON format:
             max_posts: Maximum number of posts to process (None = all)
             progress_callback: Optional callback(index, total, title, status)
             include_likes: Whether to include likes count in analysis
+            max_concurrency: Maximum parallel API calls (default: 5)
 
         Returns:
-            List of LabelingResult objects
+            List of LabelingResult objects in original order
         """
         if max_posts:
             posts = posts[:max_posts]
 
-        results = []
         total = len(posts)
-        for idx, post in enumerate(posts):
+        # Pre-allocate results list to maintain order
+        results: List[Optional[LabelingResult]] = [None] * total
+        completed_count = 0
+        rate_limit_hit = False
+        rate_limit_error = None
+        lock = threading.Lock()
+
+        logger.info(f"Starting concurrent batch labeling: {total} posts, concurrency={max_concurrency}")
+
+        def process_single(idx: int, post: Dict[str, Any]) -> tuple[int, LabelingResult]:
+            """Process a single post and return (index, result)"""
+            nonlocal rate_limit_hit, rate_limit_error
+
+            # Skip if rate limit already hit
+            if rate_limit_hit:
+                return idx, LabelingResult(
+                    note_id=post.get('note_id', 'unknown'),
+                    label="不满足",
+                    style_label="特写图",
+                    reasoning="",
+                    error="Skipped due to rate limit"
+                )
+
             title = post.get('title', 'Untitled')[:50]
             note_id = post.get('note_id', 'unknown')
 
-            logger.info(f"Processing post {idx + 1}/{total}: {note_id}")
-
-            if progress_callback:
-                progress_callback(idx + 1, total, title, "processing")
-
             try:
                 result = self.label_post(post, user_description, mode, include_likes)
-                results.append(result)
-
-                if progress_callback:
-                    status = "error" if result.error else "done"
-                    label_info = f"{result.label} ({result.style_label})"
-                    progress_callback(idx + 1, total, title, f"{status}: {label_info}")
-
+                return idx, result
             except RateLimitError as e:
+                with lock:
+                    if not rate_limit_hit:
+                        rate_limit_hit = True
+                        rate_limit_error = e
+                return idx, LabelingResult(
+                    note_id=note_id,
+                    label="不满足",
+                    style_label="特写图",
+                    reasoning="",
+                    error=f"Rate limit: {e}"
+                )
+
+        def update_progress(idx: int, result: LabelingResult):
+            """Thread-safe progress update"""
+            nonlocal completed_count
+            with lock:
+                completed_count += 1
+                title = posts[idx].get('title', 'Untitled')[:50]
                 if progress_callback:
-                    progress_callback(idx + 1, total, title, f"⚠️ RATE_LIMIT: {e}")
+                    if result.error:
+                        status = f"error: {result.error[:30]}"
+                    else:
+                        status = f"done: {result.label} ({result.style_label})"
+                    progress_callback(completed_count, total, title, status)
 
-                logger.warning(f"Rate limit hit after processing {idx} posts. Stopping batch.")
-                e.processed_count = len(results)
-                raise e
+        # Execute with ThreadPoolExecutor for concurrent processing
+        with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+            # Submit all tasks
+            futures = {
+                executor.submit(process_single, idx, post): idx
+                for idx, post in enumerate(posts)
+            }
 
-        return results
+            # Process results as they complete
+            for future in as_completed(futures):
+                try:
+                    idx, result = future.result()
+                    results[idx] = result
+                    update_progress(idx, result)
+                except Exception as e:
+                    idx = futures[future]
+                    note_id = posts[idx].get('note_id', 'unknown')
+                    error_result = LabelingResult(
+                        note_id=note_id,
+                        label="不满足",
+                        style_label="特写图",
+                        reasoning="",
+                        error=str(e)
+                    )
+                    results[idx] = error_result
+                    update_progress(idx, error_result)
+
+        # Count successful results
+        success_count = sum(1 for r in results if r and not r.error)
+        logger.info(f"Batch complete: {success_count}/{total} successful")
+
+        # Raise rate limit error if hit (after all concurrent tasks finish)
+        if rate_limit_hit and rate_limit_error:
+            rate_limit_error.processed_count = success_count
+            raise rate_limit_error
+
+        return [r for r in results if r is not None]
 
 
 # Test function

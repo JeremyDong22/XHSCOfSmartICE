@@ -1,7 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 2.2 - Added include_likes support for AI cleaning
-# Changes: Added include_likes field to LabelByCondition to pass likes count to AI
-# Previous: Food industry refactor: binary classification with style labels
+# Version: 2.3 - Added concurrent processing support
+# Changes: Added max_concurrency to CleaningConfig, passed to GeminiLabeler for parallel API calls
+# Previous: v2.2 - Added include_likes support for AI cleaning
 
 import os
 import json
@@ -88,6 +88,7 @@ class CleaningConfig:
     filter_by: Optional[FilterByCondition] = None
     label_by: Optional[LabelByCondition] = None
     output_filename: Optional[str] = None  # If None, auto-generated
+    max_concurrency: int = 5  # Number of parallel API calls for labeling
 
 
 class DataCleaningService:
@@ -164,15 +165,17 @@ class DataCleaningService:
         self,
         posts: List[Dict[str, Any]],
         label_condition: LabelByCondition,
-        progress_callback: Optional[Callable[[str], None]] = None
+        progress_callback: Optional[Callable[[str], None]] = None,
+        max_concurrency: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Apply Gemini labeling to posts with binary classification.
+        Apply Gemini labeling to posts with binary classification and concurrent processing.
 
         Args:
             posts: List of post dictionaries
             label_condition: Label condition with user description and targets
             progress_callback: Optional callback(message) for progress updates
+            max_concurrency: Number of parallel API calls
 
         Returns:
             Posts with added label fields (label, style_label, reasoning)
@@ -183,7 +186,7 @@ class DataCleaningService:
 
         # Get labeling mode
         mode = label_condition.to_labeling_mode()
-        logger.info(f"Starting labeling with mode: {mode.value}")
+        logger.info(f"Starting labeling with mode: {mode.value}, concurrency: {max_concurrency}")
         logger.info(f"User description: {label_condition.user_description}")
 
         # Create a wrapper callback that converts labeler's callback format to string messages
@@ -191,13 +194,14 @@ class DataCleaningService:
             if progress_callback:
                 progress_callback(f"[{idx}/{total}] {title} - {status}")
 
-        # Run batch labeling with user description
+        # Run batch labeling with user description and concurrency
         results: List[LabelingResult] = self.labeler.label_posts_batch(
             posts=posts,
             user_description=label_condition.user_description,
             mode=mode,
             progress_callback=labeler_progress,
-            include_likes=label_condition.include_likes
+            include_likes=label_condition.include_likes,
+            max_concurrency=max_concurrency
         )
 
         # Merge labels back into posts
@@ -253,10 +257,10 @@ class DataCleaningService:
             all_posts = self._apply_filter(all_posts, config.filter_by)
             log(f"After filter: {len(all_posts)} posts remaining")
 
-        # Step 3: Apply labels (if enabled)
+        # Step 3: Apply labels (if enabled) with concurrent processing
         if config.label_by:
-            log(f"Starting labeling with user description: {config.label_by.user_description[:50]}...")
-            all_posts = self._apply_labels(all_posts, config.label_by, progress_callback)
+            log(f"Starting labeling (concurrency={config.max_concurrency}): {config.label_by.user_description[:50]}...")
+            all_posts = self._apply_labels(all_posts, config.label_by, progress_callback, config.max_concurrency)
 
         # Step 4: Calculate processing time
         end_time = datetime.now()
