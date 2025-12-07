@@ -1,30 +1,26 @@
-# Gemini Flash Image and Content Labeling Module
-# Version: 2.0 - Food industry refactor: binary classification with style labels
-# Changes:
-# - New output format: {label: "是/否", style_label: "特写图/环境图/拼接图/信息图", reasoning: "中文解释"}
-# - Binary classification based on user-provided content description
-# - Fixed style categories: 特写图, 环境图, 拼接图, 信息图
-# - User description becomes binary match criteria (是 or 否)
-# - Transparent prompt exposure for user visibility
-#
-# Previous: Rate limit detection and auto-pause on 429 errors
+# OpenRouter Gemini Flash Image and Content Labeling Module
+# Version: 3.0 - Switched from direct Gemini SDK to OpenRouter API
+# Changes: Replaced google.generativeai with OpenRouter-compatible requests
+# Previous: v2.1 - Added include_likes support for AI analysis
 #
 # Features:
 # - Binary content matching (是/否) based on user description
 # - Fixed image style classification (特写图/环境图/拼接图/信息图)
+# - Optional likes count inclusion in analysis
 # - Transparent prompting - what you see in UI is what Gemini sees
 # - Structured JSON output with label, style_label, and reasoning
 # - Error handling and retry logic for API calls
 # - Progress callback for real-time streaming logs
 # - Auto-pause on rate limit (429) errors
+# - Uses OpenRouter API for access to Gemini 2.0 Flash
 
 import os
 import json
 import logging
+import base64
 from typing import List, Dict, Any, Optional, Literal, Callable
 from dataclasses import dataclass, asdict
 from enum import Enum
-import google.generativeai as genai
 from dotenv import load_dotenv
 import requests
 from io import BytesIO
@@ -39,11 +35,11 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitError(Exception):
-    """Custom exception for Gemini API rate limit (429) errors"""
+    """Custom exception for API rate limit (429) errors"""
     def __init__(self, message: str, processed_count: int = 0, retry_after: int = 60):
         super().__init__(message)
         self.processed_count = processed_count
-        self.retry_after = retry_after  # Suggested wait time in seconds
+        self.retry_after = retry_after
 
 
 class LabelingMode(str, Enum):
@@ -57,7 +53,7 @@ class LabelingMode(str, Enum):
     COVER_IMAGE_CONTENT = "cover_image_content"
     ALL_IMAGES_TITLE = "all_images_title"
     ALL_IMAGES_CONTENT = "all_images_content"
-    FULL = "full"  # All images + title + content
+    FULL = "full"
 
 
 # Fixed style categories for food industry
@@ -84,32 +80,40 @@ class LabelingResult:
 
 class GeminiLabeler:
     """
-    Gemini 2.0 Flash client for image and content labeling.
+    Gemini 2.0 Flash client via OpenRouter for image and content labeling.
 
     This module provides flexible prompt engineering for categorizing XHS posts
     based on images (cover or all), text (title or content), or combinations.
+    Uses OpenRouter API to access Google's Gemini 2.0 Flash model.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.0-flash"):
+    # OpenRouter API configuration
+    OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
+    DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+
+    def __init__(self, api_key: Optional[str] = None, model_name: str = None):
         """
-        Initialize Gemini labeler with API key.
+        Initialize Gemini labeler with OpenRouter API key.
 
         Args:
-            api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
-            model_name: Gemini model to use (default: gemini-2.0-flash)
+            api_key: OpenRouter API key (defaults to OPEN_ROUTER_API_KEY env var)
+            model_name: Model to use (default: google/gemini-2.0-flash-001)
         """
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        self.api_key = api_key or os.getenv("OPEN_ROUTER_API_KEY")
         if not self.api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment or constructor")
+            raise ValueError("OPEN_ROUTER_API_KEY not found in environment or constructor")
 
-        # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        self.model_name = model_name
+        self.model_name = model_name or self.DEFAULT_MODEL
 
-        # Create model WITHOUT system instruction - everything is transparent
-        self.model = genai.GenerativeModel(model_name=model_name)
+        # Set up request headers
+        self.headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://smartice.app",
+            "X-Title": "SmartICE XHS Labeler"
+        }
 
-        logger.info(f"Initialized GeminiLabeler with model: {model_name} (no hidden system prompt)")
+        logger.info(f"Initialized GeminiLabeler via OpenRouter with model: {self.model_name}")
 
     def _build_prompt(self, user_description: str) -> str:
         """
@@ -140,21 +144,42 @@ Output your analysis in this exact JSON format:
   "reasoning": "<brief explanation in Chinese>"
 }}"""
 
-    def _download_image(self, url: str) -> Optional[Image.Image]:
+    def _download_image_as_base64(self, url: str) -> Optional[str]:
         """
-        Download image from URL and return PIL Image object.
+        Download image from URL and return as base64 encoded string.
 
         Args:
             url: Image URL to download
 
         Returns:
-            PIL Image object or None if download fails
+            Base64 encoded image string or None if download fails
         """
         try:
-            response = requests.get(url, timeout=10)
+            # Use browser-like headers to bypass CDN restrictions
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+                "Referer": "https://www.xiaohongshu.com/"
+            }
+            response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            img = Image.open(BytesIO(response.content))
-            return img
+
+            # Detect image type from content-type header or URL
+            content_type = response.headers.get('content-type', 'image/jpeg')
+            if 'png' in content_type or url.lower().endswith('.png'):
+                mime_type = 'image/png'
+            elif 'gif' in content_type or url.lower().endswith('.gif'):
+                mime_type = 'image/gif'
+            elif 'webp' in content_type or url.lower().endswith('.webp'):
+                mime_type = 'image/webp'
+            else:
+                mime_type = 'image/jpeg'
+
+            # Encode to base64
+            base64_image = base64.b64encode(response.content).decode('utf-8')
+            return f"data:{mime_type};base64,{base64_image}"
+
         except Exception as e:
             logger.error(f"Failed to download image from {url}: {e}")
             return None
@@ -163,68 +188,87 @@ Output your analysis in this exact JSON format:
         self,
         post: Dict[str, Any],
         mode: LabelingMode,
-        full_prompt: str
-    ) -> List[Any]:
+        full_prompt: str,
+        include_likes: bool = False
+    ) -> List[Dict[str, Any]]:
         """
-        Prepare content parts for Gemini API based on labeling mode.
+        Prepare content parts for OpenRouter API based on labeling mode.
+        Returns OpenAI-compatible message content format.
 
         Args:
             post: XHS post dictionary
             mode: Labeling mode
             full_prompt: Complete prompt with instructions
+            include_likes: Whether to include likes count in analysis
 
         Returns:
-            List of content parts (text and/or images) for Gemini
+            List of content parts in OpenAI format
         """
-        parts = [full_prompt]
+        parts = []
 
-        # Add images based on mode
-        if mode in [LabelingMode.COVER_IMAGE, LabelingMode.COVER_IMAGE_TITLE, LabelingMode.COVER_IMAGE_CONTENT, LabelingMode.FULL]:
-            cover_url = post.get("cover_image")
-            if cover_url:
-                img = self._download_image(cover_url)
-                if img:
-                    parts.append(img)
-                    parts.append(f"[Cover Image URL: {cover_url}]")
-
-        if mode in [LabelingMode.ALL_IMAGES, LabelingMode.ALL_IMAGES_TITLE, LabelingMode.ALL_IMAGES_CONTENT, LabelingMode.FULL]:
-            images = post.get("images", [])
-            if not images and post.get("cover_image"):
-                # Fallback to cover if no images array
-                images = [post["cover_image"]]
-
-            for idx, img_url in enumerate(images):
-                img = self._download_image(img_url)
-                if img:
-                    parts.append(img)
-                    parts.append(f"[Image {idx + 1} URL: {img_url}]")
+        # Build text content
+        text_content = full_prompt
 
         # Add text based on mode
         if mode in [LabelingMode.TITLE, LabelingMode.TITLE_CONTENT, LabelingMode.COVER_IMAGE_TITLE,
                     LabelingMode.ALL_IMAGES_TITLE, LabelingMode.FULL]:
             title = post.get("title", "")
             if title:
-                parts.append(f"\nTitle: {title}")
+                text_content += f"\n\nTitle: {title}"
 
         if mode in [LabelingMode.CONTENT, LabelingMode.TITLE_CONTENT, LabelingMode.COVER_IMAGE_CONTENT,
                     LabelingMode.ALL_IMAGES_CONTENT, LabelingMode.FULL]:
             content = post.get("content", "")
             if content:
-                parts.append(f"\nContent: {content}")
+                text_content += f"\n\nContent: {content}"
+
+        # Add likes count if requested
+        if include_likes:
+            likes = post.get("likes", 0)
+            text_content += f"\n\nLikes: {likes}"
+
+        # Add the text part first
+        parts.append({"type": "text", "text": text_content})
+
+        # Add images based on mode - download and encode as base64
+        # (XHS CDN URLs block direct access from external servers)
+        if mode in [LabelingMode.COVER_IMAGE, LabelingMode.COVER_IMAGE_TITLE,
+                    LabelingMode.COVER_IMAGE_CONTENT]:
+            cover_url = post.get("cover_image")
+            if cover_url:
+                base64_url = self._download_image_as_base64(cover_url)
+                if base64_url:
+                    parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": base64_url}
+                    })
+
+        if mode in [LabelingMode.ALL_IMAGES, LabelingMode.ALL_IMAGES_TITLE,
+                    LabelingMode.ALL_IMAGES_CONTENT, LabelingMode.FULL]:
+            images = post.get("images", [])
+            if not images and post.get("cover_image"):
+                images = [post["cover_image"]]
+
+            for img_url in images:
+                base64_url = self._download_image_as_base64(img_url)
+                if base64_url:
+                    parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": base64_url}
+                    })
 
         return parts
 
     def _parse_json_response(self, response_text: str) -> Dict[str, Any]:
         """
-        Parse JSON response from Gemini, handling potential formatting issues.
+        Parse JSON response, handling potential formatting issues.
 
         Args:
-            response_text: Raw response text from Gemini
+            response_text: Raw response text from API
 
         Returns:
-            Parsed JSON dictionary (extracts first item if array is returned)
+            Parsed JSON dictionary
         """
-        # Try to extract JSON if wrapped in markdown code blocks
         text = response_text.strip()
 
         # Remove markdown code blocks if present
@@ -240,32 +284,29 @@ Output your analysis in this exact JSON format:
 
         try:
             result = json.loads(text)
-            # Handle array responses - extract first item
-            if isinstance(result, list):
-                if len(result) > 0:
-                    return result[0]
-                else:
-                    return {}
+            if isinstance(result, list) and len(result) > 0:
+                return result[0]
             return result
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response: {e}")
             logger.error(f"Raw response: {response_text}")
             raise
 
-
     def label_post(
         self,
         post: Dict[str, Any],
         user_description: str,
-        mode: LabelingMode = LabelingMode.COVER_IMAGE
+        mode: LabelingMode = LabelingMode.COVER_IMAGE,
+        include_likes: bool = False
     ) -> LabelingResult:
         """
-        Label a single XHS post using Gemini 2.0 Flash with binary classification.
+        Label a single XHS post using Gemini 2.0 Flash via OpenRouter.
 
         Args:
             post: XHS post dictionary (must have note_id)
             user_description: User's description of what posts they want to filter
             mode: Labeling mode (what to analyze)
+            include_likes: Whether to include likes count in analysis
 
         Returns:
             LabelingResult with label (是/不是), style_label, and reasoning
@@ -273,47 +314,57 @@ Output your analysis in this exact JSON format:
         note_id = post.get("note_id", "unknown")
 
         try:
-            # Build the prompt with binary classification and style labeling
+            # Build the prompt
             full_prompt = self._build_prompt(user_description)
 
-            # Prepare content parts
-            content_parts = self._prepare_content_parts(post, mode, full_prompt)
+            # Prepare content parts in OpenAI format
+            content_parts = self._prepare_content_parts(post, mode, full_prompt, include_likes)
 
-            # Generate content with system instruction
-            generation_config = genai.types.GenerationConfig(
-                temperature=0.1,  # Low temperature for consistent categorization
-                top_p=0.95,
-                top_k=40,
-                max_output_tokens=1024,
-            )
-
-            from google.generativeai.types import HarmCategory, HarmBlockThreshold
-
-            safety_settings = {
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            # Build the request payload
+            payload = {
+                "model": self.model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content_parts
+                    }
+                ],
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_tokens": 1024
             }
 
-            response = self.model.generate_content(
-                content_parts,
-                generation_config=generation_config,
-                safety_settings=safety_settings
+            # Make the API request
+            response = requests.post(
+                self.OPENROUTER_BASE_URL,
+                headers=self.headers,
+                json=payload,
+                timeout=60
             )
 
-            # Check if response was blocked
-            if not response.candidates or not response.candidates[0].content.parts:
-                # Response was blocked, check why
-                if hasattr(response, 'prompt_feedback'):
-                    block_reason = response.prompt_feedback
-                    raise ValueError(f"Response blocked: {block_reason}")
-                else:
-                    raise ValueError("Response blocked by safety filters")
+            # Log error details for debugging
+            if response.status_code >= 400:
+                logger.error(f"API error {response.status_code}: {response.text}")
 
-            # Parse response
-            response_text = response.text
-            logger.debug(f"Gemini response for {note_id}: {response_text}")
+            # Check for rate limit errors
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                raise RateLimitError(
+                    f"Rate limit exceeded. Please wait {retry_after}s before retrying.",
+                    retry_after=retry_after
+                )
+
+            response.raise_for_status()
+
+            # Parse the response
+            response_data = response.json()
+
+            # Extract the message content
+            if 'choices' not in response_data or len(response_data['choices']) == 0:
+                raise ValueError("No response choices returned from API")
+
+            response_text = response_data['choices'][0]['message']['content']
+            logger.debug(f"API response for {note_id}: {response_text}")
 
             result_json = self._parse_json_response(response_text)
 
@@ -323,7 +374,7 @@ Output your analysis in this exact JSON format:
                 logger.warning(f"Invalid label '{label}' for {note_id}, defaulting to '否'")
                 label = "否"
 
-            # Extract style_label (特写图/环境图/拼接图/信息图)
+            # Extract style_label
             style_label = result_json.get("style_label", "特写图")
             if style_label not in STYLE_CATEGORIES:
                 logger.warning(f"Invalid style_label '{style_label}' for {note_id}, defaulting to '特写图'")
@@ -339,20 +390,19 @@ Output your analysis in this exact JSON format:
                 reasoning=reasoning
             )
 
+        except RateLimitError:
+            raise
         except Exception as e:
             error_str = str(e)
             logger.error(f"Error labeling post {note_id}: {error_str}")
 
-            # Check for rate limit (429) errors - re-raise as RateLimitError
+            # Check for rate limit errors in exception message
             if "429" in error_str or "rate limit" in error_str.lower() or "quota" in error_str.lower():
-                # Extract retry_after if available (Gemini often suggests wait time)
-                retry_after = 60  # Default 60 seconds
-                if "retry" in error_str.lower():
-                    # Try to extract suggested wait time from error message
-                    import re
-                    match = re.search(r'(\d+(?:\.\d+)?)\s*s', error_str)
-                    if match:
-                        retry_after = int(float(match.group(1))) + 5  # Add buffer
+                import re
+                retry_after = 60
+                match = re.search(r'(\d+(?:\.\d+)?)\s*s', error_str)
+                if match:
+                    retry_after = int(float(match.group(1))) + 5
 
                 raise RateLimitError(
                     f"Rate limit exceeded. Please wait {retry_after}s before retrying.",
@@ -373,7 +423,8 @@ Output your analysis in this exact JSON format:
         user_description: str,
         mode: LabelingMode = LabelingMode.COVER_IMAGE,
         max_posts: Optional[int] = None,
-        progress_callback: Optional[Callable[[int, int, str, str], None]] = None
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        include_likes: bool = False
     ) -> List[LabelingResult]:
         """
         Label multiple XHS posts in batch with binary classification.
@@ -383,7 +434,8 @@ Output your analysis in this exact JSON format:
             user_description: User's description of what posts they want to filter
             mode: Labeling mode (what to analyze)
             max_posts: Maximum number of posts to process (None = all)
-            progress_callback: Optional callback(index, total, title, status) for progress updates
+            progress_callback: Optional callback(index, total, title, status)
+            include_likes: Whether to include likes count in analysis
 
         Returns:
             List of LabelingResult objects
@@ -394,205 +446,94 @@ Output your analysis in this exact JSON format:
         results = []
         total = len(posts)
         for idx, post in enumerate(posts):
-            title = post.get('title', 'Untitled')[:50]  # Truncate long titles
+            title = post.get('title', 'Untitled')[:50]
             note_id = post.get('note_id', 'unknown')
 
             logger.info(f"Processing post {idx + 1}/{total}: {note_id}")
 
-            # Report progress: starting this post
             if progress_callback:
                 progress_callback(idx + 1, total, title, "processing")
 
             try:
-                result = self.label_post(post, user_description, mode)
+                result = self.label_post(post, user_description, mode, include_likes)
                 results.append(result)
 
-                # Report progress: completed this post
                 if progress_callback:
                     status = "error" if result.error else "done"
                     label_info = f"{result.label} ({result.style_label})"
                     progress_callback(idx + 1, total, title, f"{status}: {label_info}")
 
             except RateLimitError as e:
-                # Send rate limit warning through progress callback
                 if progress_callback:
                     progress_callback(idx + 1, total, title, f"⚠️ RATE_LIMIT: {e}")
 
                 logger.warning(f"Rate limit hit after processing {idx} posts. Stopping batch.")
-
-                # Update the exception with the count of successfully processed posts
                 e.processed_count = len(results)
                 raise e
 
         return results
 
 
-def test_gemini_labeler():
-    """
-    Test function using sample data from output directory.
-    Tests categorization of "Single Dish" vs "Multiple Dishes" for cover images.
-    """
-    logger.info("Starting Gemini Labeler test")
+# Test function
+def test_openrouter_labeler():
+    """Quick test of the OpenRouter Gemini labeler with one image"""
+    import glob
 
-    # Load sample data
-    sample_file = "/Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/output/爆浆蛋糕_account5_20251206_175247.json"
+    logger.info("Testing OpenRouter Gemini Labeler")
+
+    # Find a sample file - use the most recently modified one
+    output_dir = "/Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/output"
+    json_files = glob.glob(f"{output_dir}/*.json")
+
+    if not json_files:
+        logger.error("No JSON files found in output directory")
+        return False
+
+    # Sort by modification time (newest first)
+    json_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+    sample_file = json_files[0]
+    logger.info(f"Using sample file: {sample_file}")
 
     with open(sample_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
     posts = data.get("posts", [])
-    logger.info(f"Loaded {len(posts)} posts from sample file")
+    if not posts:
+        logger.error("No posts found in sample file")
+        return False
 
-    # Initialize labeler
-    labeler = GeminiLabeler()
+    # Test with first post only
+    test_post = posts[0]
+    logger.info(f"Testing with post: {test_post.get('note_id')} - {test_post.get('title', 'No title')[:50]}")
 
-    # Define categorization
-    categories = [
-        "Single Dish - Image shows one main food item (e.g., one cake, one pastry)",
-        "Multiple Dishes - Image shows multiple food items or a spread of different dishes"
-    ]
+    try:
+        labeler = GeminiLabeler()
 
-    # Test first 3 posts
-    results = labeler.label_posts_batch(
-        posts=posts,
-        categories=categories,
-        mode=LabelingMode.COVER_IMAGE,
-        max_posts=3
-    )
+        result = labeler.label_post(
+            post=test_post,
+            user_description="美食相关的内容",
+            mode=LabelingMode.COVER_IMAGE
+        )
 
-    # Print results
-    print("\n" + "="*80)
-    print("GEMINI LABELING RESULTS")
-    print("="*80)
-
-    for result in results:
-        print(f"\nPost ID: {result.note_id}")
-        print(f"Labels: {json.dumps(result.labels, ensure_ascii=False, indent=2)}")
-        print(f"Confidence: {result.confidence}")
+        print("\n" + "=" * 60)
+        print("OPENROUTER GEMINI LABELER TEST RESULT")
+        print("=" * 60)
+        print(f"Note ID: {result.note_id}")
+        print(f"Label: {result.label}")
+        print(f"Style: {result.style_label}")
         print(f"Reasoning: {result.reasoning}")
         if result.error:
             print(f"Error: {result.error}")
-        print("-" * 80)
+            return False
+        print("=" * 60)
+        print("✅ Test PASSED!")
+        return True
 
-    # Save results to file
-    output_file = "/Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/output/gemini_test_results.json"
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(
-            {
-                "test_mode": "cover_image",
-                "categories": categories,
-                "total_posts_tested": len(results),
-                "results": [r.to_dict() for r in results]
-            },
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
-
-    logger.info(f"Test results saved to: {output_file}")
-    print(f"\nTest results saved to: {output_file}")
-
-    return results
-
-
-def test_advanced_labeling_modes():
-    """
-    Advanced test showcasing different labeling modes:
-    - Title-only labeling
-    - Cover Image + Title combined labeling
-    - Multiple category options
-    """
-    logger.info("Starting Advanced Labeling Modes Test")
-
-    # Load sample data
-    sample_file = "/Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/output/爆浆蛋糕_account5_20251206_175247.json"
-
-    with open(sample_file, 'r', encoding='utf-8') as f:
-        data = json.load(f)
-
-    posts = data.get("posts", [])[:3]
-    labeler = GeminiLabeler()
-
-    print("\n" + "="*80)
-    print("ADVANCED LABELING MODES DEMO")
-    print("="*80)
-
-    # Test 1: Title-only labeling - Recipe vs Product Review
-    print("\n### Test 1: Title-Only Labeling (Recipe vs Product Review)")
-    print("-" * 80)
-
-    title_categories = [
-        "Recipe/DIY - Content about making food at home (e.g., '教程', '制作', '做法')",
-        "Product Review - Content reviewing restaurants, stores, or products (e.g., '店名', '推荐', '测评')"
-    ]
-
-    title_results = labeler.label_posts_batch(
-        posts=posts,
-        categories=title_categories,
-        mode=LabelingMode.TITLE,
-        max_posts=3
-    )
-
-    for result in title_results:
-        post = next(p for p in posts if p['note_id'] == result.note_id)
-        print(f"\nTitle: {post['title']}")
-        print(f"Label: {result.labels.get('title_label', 'N/A')}")
-        print(f"Confidence: {result.confidence}")
-        print(f"Reasoning: {result.reasoning}")
-
-    # Test 2: Cover Image + Title combined - Premium vs Budget
-    print("\n\n### Test 2: Cover Image + Title Combined (Premium vs Budget)")
-    print("-" * 80)
-
-    combined_categories = [
-        "Premium/Luxury - High-end presentation, elaborate plating, upscale environment",
-        "Casual/Homestyle - Simple presentation, home-cooked feel, everyday dining"
-    ]
-
-    combined_results = labeler.label_posts_batch(
-        posts=posts,
-        categories=combined_categories,
-        mode=LabelingMode.COVER_IMAGE_TITLE,
-        max_posts=3
-    )
-
-    for result in combined_results:
-        post = next(p for p in posts if p['note_id'] == result.note_id)
-        print(f"\nTitle: {post['title']}")
-        print(f"Label: {result.labels.get('cover_image_label', 'N/A')}")
-        print(f"Confidence: {result.confidence}")
-        print(f"Reasoning: {result.reasoning}")
-
-    # Save all results
-    output_file = "/Users/jeremydong/Desktop/Smartice/APPs/XHSCOfSmartICE/output/gemini_advanced_test_results.json"
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(
-            {
-                "test_1_title_only": {
-                    "mode": "title",
-                    "categories": title_categories,
-                    "results": [r.to_dict() for r in title_results]
-                },
-                "test_2_combined": {
-                    "mode": "cover_image_title",
-                    "categories": combined_categories,
-                    "results": [r.to_dict() for r in combined_results]
-                }
-            },
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
-
-    logger.info(f"Advanced test results saved to: {output_file}")
-    print(f"\n\nAdvanced test results saved to: {output_file}")
+    except Exception as e:
+        logger.error(f"Test failed with error: {e}")
+        print(f"\n❌ Test FAILED: {e}")
+        return False
 
 
 if __name__ == "__main__":
-    # Run basic test
-    print("Running basic test...")
-    test_gemini_labeler()
-
-    # Run advanced test
-    print("\n\nRunning advanced labeling modes test...")
-    test_advanced_labeling_modes()
+    test_openrouter_labeler()
