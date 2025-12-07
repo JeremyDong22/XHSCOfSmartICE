@@ -1,7 +1,7 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.7 - UI localization to Chinese
-// Changes: All labels, placeholders, buttons, and alerts translated to Chinese
-// Previous: Account selector shows nickname (fallback to Account ID) with ID in parentheses
+// Version: 3.8 - Changed max posts from slider to editable input
+// Changes: Replace slider with number input for precise value entry
+// Previous: v3.7 - UI localization to Chinese
 
 'use client';
 
@@ -128,24 +128,28 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
             />
           </div>
 
-          {/* Max posts slider */}
+          {/* Max posts input */}
           <div>
-            <label htmlFor="max-posts-slider" className="block text-sm font-medium text-stone-200 mb-1.5">
-              最大采集数量: <span className="font-mono text-[#D97757]">{maxPosts}</span>
+            <label htmlFor="max-posts-input" className="block text-sm font-medium text-stone-200 mb-1.5">
+              最大采集数量
             </label>
             <input
-              id="max-posts-slider"
-              type="range"
-              min={1}
-              max={2000}
-              step={1}
+              id="max-posts-input"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={maxPosts}
-              onChange={(e) => setMaxPosts(Number(e.target.value))}
-              aria-valuemin={1}
-              aria-valuemax={2000}
-              aria-valuenow={maxPosts}
-              className="w-full cursor-pointer"
+              onChange={(e) => {
+                const value = e.target.value.replace(/[^0-9]/g, '');
+                const num = parseInt(value, 10) || 1;
+                setMaxPosts(Math.min(Math.max(num, 1), 2000));
+              }}
+              placeholder="1-2000"
+              className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm placeholder-stone-600 focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all font-mono"
             />
+            <p className="mt-1.5 text-xs text-stone-500">
+              范围: 1 - 2000
+            </p>
           </div>
 
           {/* Min likes filter */}

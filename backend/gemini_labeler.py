@@ -1,10 +1,10 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 3.0 - Switched from direct Gemini SDK to OpenRouter API
-# Changes: Replaced google.generativeai with OpenRouter-compatible requests
-# Previous: v2.1 - Added include_likes support for AI analysis
+# Version: 3.1 - Updated label values from 是/否 to 满足/不满足
+# Changes: Changed binary labels to clearer Chinese terms for UI display
+# Previous: v3.0 - Switched from direct Gemini SDK to OpenRouter API
 #
 # Features:
-# - Binary content matching (是/否) based on user description
+# - Binary content matching (满足/不满足) based on user description
 # - Fixed image style classification (特写图/环境图/拼接图/信息图)
 # - Optional likes count inclusion in analysis
 # - Transparent prompting - what you see in UI is what Gemini sees
@@ -69,7 +69,7 @@ STYLE_CATEGORIES = [
 class LabelingResult:
     """Structured result for a single post's labeling"""
     note_id: str
-    label: str  # Binary: "是" or "不是"
+    label: str  # Binary: "满足" or "不满足"
     style_label: str  # One of: "特写图", "环境图", "拼接图", "信息图"
     reasoning: str  # Explanation in Chinese
     error: Optional[str] = None
@@ -129,7 +129,7 @@ class GeminiLabeler:
 
 User's filter criteria: {user_description}
 
-Based on this criteria, determine if the post matches (是) or doesn't match (否).
+Based on this criteria, determine if the post matches (满足) or doesn't match (不满足).
 
 Also classify the image style into one of these fixed categories:
 - 特写图: Close-up shots focusing on the main subject (food, product details)
@@ -139,7 +139,7 @@ Also classify the image style into one of these fixed categories:
 
 Output your analysis in this exact JSON format:
 {{
-  "label": "<是 or 否>",
+  "label": "<满足 or 不满足>",
   "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
   "reasoning": "<brief explanation in Chinese>"
 }}"""
@@ -309,7 +309,7 @@ Output your analysis in this exact JSON format:
             include_likes: Whether to include likes count in analysis
 
         Returns:
-            LabelingResult with label (是/不是), style_label, and reasoning
+            LabelingResult with label (满足/不满足), style_label, and reasoning
         """
         note_id = post.get("note_id", "unknown")
 
@@ -368,11 +368,11 @@ Output your analysis in this exact JSON format:
 
             result_json = self._parse_json_response(response_text)
 
-            # Extract label (是/否)
-            label = result_json.get("label", "否")
-            if label not in ["是", "否"]:
-                logger.warning(f"Invalid label '{label}' for {note_id}, defaulting to '否'")
-                label = "否"
+            # Extract label (满足/不满足)
+            label = result_json.get("label", "不满足")
+            if label not in ["满足", "不满足"]:
+                logger.warning(f"Invalid label '{label}' for {note_id}, defaulting to '不满足'")
+                label = "不满足"
 
             # Extract style_label
             style_label = result_json.get("style_label", "特写图")
@@ -411,7 +411,7 @@ Output your analysis in this exact JSON format:
 
             return LabelingResult(
                 note_id=note_id,
-                label="否",
+                label="不满足",
                 style_label="特写图",
                 reasoning="",
                 error=error_str

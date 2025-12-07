@@ -1,7 +1,7 @@
 // Scrape Results Panel - Left side of Data Laundry tab
-// Version: 1.8 - Hide scrollbar for cleaner look
-// Changes: Added scrollbar-hide class to file list
-// Previous: UI localization to Chinese
+// Version: 1.9 - Added inline thumbnail preview for files
+// Changes: Preview button shows small thumbnails in a single row
+// Previous: v1.8 - Hide scrollbar for cleaner look
 
 'use client';
 
@@ -37,6 +37,11 @@ export default function ScrapeResultsPanel({
   const [accountFilter, setAccountFilter] = useState<number | 'all'>('all');
   const [sortOrder, setSortOrder] = useState<SortOrder>('newest');
   const [loadingMetadata, setLoadingMetadata] = useState<Set<string>>(new Set());
+
+  // Preview state: which file is being previewed and its thumbnail URLs
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [previewThumbnails, setPreviewThumbnails] = useState<string[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // Helper to get account display name (nickname or "Account X")
   const getAccountDisplayName = (accountId: number) => {
@@ -174,6 +179,38 @@ export default function ScrapeResultsPanel({
     });
   };
 
+  // Toggle preview for a file - load thumbnails from file data
+  const togglePreview = async (filename: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // If already previewing this file, close it
+    if (previewFile === filename) {
+      setPreviewFile(null);
+      setPreviewThumbnails([]);
+      return;
+    }
+
+    // Load file data to get cover images
+    setLoadingPreview(true);
+    setPreviewFile(filename);
+
+    try {
+      const data = await getScrapeResult(filename);
+      // Extract cover images from posts (show more to fill the row)
+      const thumbnails = data.posts
+        .slice(0, 30)
+        .map(post => post.cover_image)
+        .filter(Boolean);
+      setPreviewThumbnails(thumbnails);
+    } catch (error) {
+      console.error('Failed to load preview:', error);
+      setPreviewThumbnails([]);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
   return (
     <div className="bg-stone-800 rounded-xl border border-stone-700 h-full flex flex-col">
       {/* Header */}
@@ -274,43 +311,87 @@ export default function ScrapeResultsPanel({
         ) : (
           <div className="space-y-1">
             {filteredFiles.map((file) => (
-              <label
+              <div
                 key={file.filename}
-                className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-all ${
+                className={`rounded-lg transition-all ${
                   selectedFiles.includes(file.filename)
                     ? 'bg-[rgba(217,119,87,0.1)] border border-[rgba(217,119,87,0.25)]'
                     : 'bg-stone-900 border border-stone-700 hover:border-stone-600'
                 }`}
               >
-                <input
-                  type="checkbox"
-                  checked={selectedFiles.includes(file.filename)}
-                  onChange={() => toggleFileSelection(file.filename)}
-                  className="mt-0.5 flex-shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  {/* Keyword Badge */}
-                  {file.keyword && (
-                    <span className="inline-block px-2 py-0.5 text-xs font-medium text-[#E8A090] bg-[rgba(217,119,87,0.15)] rounded mb-1">
-                      {file.keyword}
-                    </span>
-                  )}
-
-                  {/* Filename */}
-                  <div className="text-sm text-stone-200 truncate">
-                    {file.filename}
-                  </div>
-
-                  {/* Metadata Row */}
-                  <div className="flex items-center gap-3 mt-1 text-xs font-mono text-stone-500">
-                    {file.accountId && (
-                      <span>{getAccountDisplayName(file.accountId)}</span>
+                {/* Main row with checkbox, info, and preview button */}
+                <label className="flex items-start gap-3 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedFiles.includes(file.filename)}
+                    onChange={() => toggleFileSelection(file.filename)}
+                    className="mt-0.5 flex-shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    {/* Keyword Badge */}
+                    {file.keyword && (
+                      <span className="inline-block px-2 py-0.5 text-xs font-medium text-[#E8A090] bg-[rgba(217,119,87,0.15)] rounded mb-1">
+                        {file.keyword}
+                      </span>
                     )}
-                    <span>{formatFileSize(file.size)}</span>
-                    <span>{formatDate(file.scrapedAt)}</span>
+
+                    {/* Filename */}
+                    <div className="text-sm text-stone-200 truncate">
+                      {file.filename}
+                    </div>
+
+                    {/* Metadata Row */}
+                    <div className="flex items-center gap-3 mt-1 text-xs font-mono text-stone-500">
+                      {file.accountId && (
+                        <span>{getAccountDisplayName(file.accountId)}</span>
+                      )}
+                      <span>{formatFileSize(file.size)}</span>
+                      <span>{formatDate(file.scrapedAt)}</span>
+                    </div>
                   </div>
-                </div>
-              </label>
+
+                  {/* Preview button */}
+                  <button
+                    onClick={(e) => togglePreview(file.filename, e)}
+                    className={`flex-shrink-0 px-2 py-1 text-xs rounded transition-all ${
+                      previewFile === file.filename
+                        ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
+                        : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600 hover:text-stone-300'
+                    }`}
+                  >
+                    {loadingPreview && previewFile === file.filename ? (
+                      <span className="inline-block w-3 h-3 border border-stone-500 border-t-transparent rounded-full animate-spin" />
+                    ) : previewFile === file.filename ? (
+                      '收起'
+                    ) : (
+                      '预览'
+                    )}
+                  </button>
+                </label>
+
+                {/* Thumbnail preview row - aligned with keyword badge, extends to preview button */}
+                {previewFile === file.filename && !loadingPreview && previewThumbnails.length > 0 && (
+                  <div className="pb-2 pr-3 pl-[38px]">
+                    <div className="flex gap-0.5 overflow-hidden">
+                      {previewThumbnails.map((url, idx) => (
+                        <div
+                          key={idx}
+                          className="w-8 h-8 flex-shrink-0 rounded-sm bg-stone-800 overflow-hidden"
+                        >
+                          <img
+                            src={url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
