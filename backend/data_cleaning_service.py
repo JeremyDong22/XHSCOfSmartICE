@@ -1,7 +1,8 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 2.3 - Added concurrent processing support
-# Changes: Added max_concurrency to CleaningConfig, passed to GeminiLabeler for parallel API calls
-# Previous: v2.2 - Added include_likes support for AI cleaning
+# Version: 2.6 - Support partial result saving on manual cancellation
+# Changes: Track intermediate results during processing, add get_partial_result() method
+#          for saving partial results when task is cancelled manually
+# Previous: v2.5 - Output filename includes search keywords from source files
 
 import os
 import json
@@ -11,7 +12,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
-from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult, RateLimitError
+from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult, BatchResult, RateLimitError
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -111,6 +112,9 @@ class DataCleaningService:
         """
         self.gemini_api_key = gemini_api_key
         self.labeler: Optional[GeminiLabeler] = None
+        # Track intermediate results for cancellation support
+        self._current_partial_result: Optional[Dict[str, Any]] = None
+        self._processing_start_time: Optional[datetime] = None
 
     def _load_posts_from_files(self, filepaths: List[str]) -> tuple[List[Dict[str, Any]], List[str]]:
         """
@@ -167,9 +171,10 @@ class DataCleaningService:
         label_condition: LabelByCondition,
         progress_callback: Optional[Callable[[str], None]] = None,
         max_concurrency: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Optional[BatchResult]]:
         """
         Apply Gemini labeling to posts with binary classification and concurrent processing.
+        Returns partial results if interrupted by 429 or other errors.
 
         Args:
             posts: List of post dictionaries
@@ -178,7 +183,7 @@ class DataCleaningService:
             max_concurrency: Number of parallel API calls
 
         Returns:
-            Posts with added label fields (label, style_label, reasoning)
+            Tuple of (labeled posts, BatchResult metadata for partial tracking)
         """
         # Initialize labeler if not already done
         if self.labeler is None:
@@ -195,7 +200,8 @@ class DataCleaningService:
                 progress_callback(f"[{idx}/{total}] {title} - {status}")
 
         # Run batch labeling with user description and concurrency
-        results: List[LabelingResult] = self.labeler.label_posts_batch(
+        # BatchResult always returns results even on 429/errors
+        batch_result: BatchResult = self.labeler.label_posts_batch(
             posts=posts,
             user_description=label_condition.user_description,
             mode=mode,
@@ -206,11 +212,11 @@ class DataCleaningService:
 
         # Merge labels back into posts
         labeled_posts = []
-        for post, result in zip(posts, results):
+        for post, result in zip(posts, batch_result.results):
             # Create a copy of the post
             labeled_post = post.copy()
 
-            # Add label fields - new structure with label, style_label, reasoning
+            # Add label fields - only if successfully processed (non-empty label)
             labeled_post["label"] = result.label
             labeled_post["style_label"] = result.style_label
             labeled_post["label_reasoning"] = result.reasoning
@@ -220,8 +226,15 @@ class DataCleaningService:
 
             labeled_posts.append(labeled_post)
 
-        logger.info(f"Labeled {len(labeled_posts)} posts")
-        return labeled_posts
+        logger.info(f"Labeled {len(labeled_posts)} posts (successful: {batch_result.successful_count}, partial: {batch_result.is_partial})")
+
+        # Log partial completion warning
+        if batch_result.is_partial:
+            logger.warning(f"Labeling interrupted: {batch_result.interrupted_reason}")
+            if progress_callback:
+                progress_callback(f"⚠️ Partial completion: {batch_result.interrupted_reason}")
+
+        return labeled_posts, batch_result
 
     def clean_and_label(
         self,
@@ -230,15 +243,17 @@ class DataCleaningService:
     ) -> Dict[str, Any]:
         """
         Execute full cleaning and labeling pipeline.
+        Always returns results, even if interrupted by 429 or other errors.
 
         Args:
             config: Cleaning configuration
             progress_callback: Optional callback(message) for progress updates
 
         Returns:
-            Dictionary with metadata and processed posts
+            Dictionary with metadata and processed posts (may be partial)
         """
         start_time = datetime.now()
+        batch_result: Optional[BatchResult] = None
 
         def log(msg: str):
             logger.info(msg)
@@ -258,15 +273,20 @@ class DataCleaningService:
             log(f"After filter: {len(all_posts)} posts remaining")
 
         # Step 3: Apply labels (if enabled) with concurrent processing
+        # Returns partial results on 429/errors instead of throwing
         if config.label_by:
             log(f"Starting labeling (concurrency={config.max_concurrency}): {config.label_by.user_description[:50]}...")
-            all_posts = self._apply_labels(all_posts, config.label_by, progress_callback, config.max_concurrency)
+            all_posts, batch_result = self._apply_labels(all_posts, config.label_by, progress_callback, config.max_concurrency)
 
         # Step 4: Calculate processing time
         end_time = datetime.now()
         processing_time = (end_time - start_time).total_seconds()
 
-        # Step 5: Build output structure
+        # Step 5: Determine if result is partial
+        is_partial = batch_result.is_partial if batch_result else False
+        successful_count = batch_result.successful_count if batch_result else len(all_posts)
+
+        # Step 6: Build output structure
         result = {
             "metadata": {
                 "cleaned_at": end_time.isoformat(),
@@ -274,10 +294,23 @@ class DataCleaningService:
                 "processing_time_seconds": round(processing_time, 2),
                 "original_files": loaded_files,
                 "total_posts_input": total_input,
-                "total_posts_output": len(all_posts)
+                "total_posts_output": len(all_posts),
+                # Partial completion tracking
+                "is_partial": is_partial,
+                "successfully_labeled": successful_count
             },
             "posts": all_posts
         }
+
+        # Add partial completion details if interrupted
+        if is_partial and batch_result:
+            result["metadata"]["partial_completion"] = {
+                "interrupted_reason": batch_result.interrupted_reason,
+                "interrupted_at_index": batch_result.interrupted_at_index,
+                "error_count": batch_result.error_count,
+                "total_attempted": batch_result.total_posts
+            }
+            log(f"⚠️ Results saved as PARTIAL: {successful_count}/{batch_result.total_posts} posts labeled")
 
         # Add filter condition metadata
         if config.filter_by:
@@ -295,15 +328,44 @@ class DataCleaningService:
                 "include_likes": config.label_by.include_likes,
                 "user_description": config.label_by.user_description,
                 "full_prompt": config.label_by.full_prompt,
-                "style_categories": ["特写图", "环境图", "拼接图", "信息图"]  # Fixed categories
+                "style_categories": ["人物图", "特写图", "环境图", "拼接图", "信息图"]  # Fixed 5 categories
             }
 
-        logger.info(f"Cleaning complete in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts")
+        status = "PARTIAL" if is_partial else "complete"
+        logger.info(f"Cleaning {status} in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts (labeled: {successful_count})")
         return result
+
+    def _extract_search_keywords(self, filenames: List[str]) -> List[str]:
+        """
+        Extract search keywords from source filenames.
+        Filename format: 搜索词_accountX_YYYYMMDD_HHMMSS.json -> extracts 搜索词
+
+        Args:
+            filenames: List of source filenames
+
+        Returns:
+            List of unique search keywords in order of first appearance
+        """
+        keywords = []
+        seen = set()
+
+        for filename in filenames:
+            # Remove .json extension if present
+            name = filename.rsplit('.json', 1)[0] if filename.endswith('.json') else filename
+            # Extract keyword (part before first underscore)
+            parts = name.split('_')
+            if parts:
+                keyword = parts[0]
+                if keyword and keyword not in seen:
+                    keywords.append(keyword)
+                    seen.add(keyword)
+
+        return keywords
 
     def save_cleaned_result(self, result: Dict[str, Any], output_filename: Optional[str] = None) -> str:
         """
         Save cleaned result to JSON file.
+        Auto-generates filename with search keywords from source files.
 
         Args:
             result: Cleaned result dictionary
@@ -313,9 +375,17 @@ class DataCleaningService:
             Absolute path to saved file
         """
         if output_filename is None:
-            # Auto-generate filename
+            # Extract search keywords from original files
+            original_files = result.get("metadata", {}).get("original_files", [])
+            keywords = self._extract_search_keywords(original_files)
+
+            # Build filename with keywords joined by &
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"cleaned_{timestamp}.json"
+            if keywords:
+                keywords_str = "&".join(keywords)
+                output_filename = f"{keywords_str}_cleaned_{timestamp}.json"
+            else:
+                output_filename = f"cleaned_{timestamp}.json"
 
         output_path = CLEANED_OUTPUT_DIR / output_filename
 
