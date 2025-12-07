@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 1.9 - Added delete button for completed/failed tasks
-// Changes: Added onDeleteTask prop and delete button UI for task history
-// Previous: UI localization to Chinese
+// Version: 2.0 - Sort completed tasks by time (latest first)
+// Changes: Sort completedTasks by completedAt/startedAt descending
+// Previous: v1.9 - Added delete button for completed/failed tasks
 
 'use client';
 
@@ -338,7 +338,14 @@ export default function ProcessingQueue({ tasks, onCancelTask, onDeleteTask, bac
   // Separate tasks by status
   const processingTasks = tasks.filter(t => t.status === 'processing');
   const queuedTasks = tasks.filter(t => t.status === 'queued');
-  const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'rate_limited');
+  // Sort completed tasks by time (latest first), using completedAt or startedAt
+  const completedTasks = tasks
+    .filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'rate_limited')
+    .sort((a, b) => {
+      const timeA = a.completedAt?.getTime() || a.startedAt?.getTime() || 0;
+      const timeB = b.completedAt?.getTime() || b.startedAt?.getTime() || 0;
+      return timeB - timeA; // Descending order (latest first)
+    });
 
   // All active tasks (for grid display)
   const activeTasks = [...processingTasks, ...queuedTasks];
