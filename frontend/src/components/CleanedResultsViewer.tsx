@@ -1,11 +1,11 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 3.3 - Added style_label filter and updated label values
-// Changes: Added dropdown filter for style_label, updated label display to 满足/不满足
-// Previous: v3.2 - Support both old and new data formats
+// Version: 3.5 - Fixed filter dropdowns always show all options
+// Changes: Label and style filters now always display all options with counts (even if 0)
+// Previous: v3.4 - Label tooltip shows on hover, pins on click, dismisses on click outside
 
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { XHSPost, deleteCleanedResult } from '@/lib/api';
 
 // Types for cleaned data structure
@@ -34,7 +34,7 @@ export interface CleaningMetadata {
 export interface LabeledPost extends XHSPost {
   // New structure: binary label + style label
   label?: string;  // Binary: "满足" or "不满足" (new format)
-  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图" (new format)
+  style_label?: string;  // One of: "人物图", "特写图", "环境图", "拼接图", "信息图"
   label_reasoning?: string;  // Explanation
   // Legacy format support
   labels?: { label?: string };  // Old format: labels.label contains category name
@@ -112,6 +112,9 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [showReasoning, setShowReasoning] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const badgeRef = useRef<HTMLDivElement>(null);
 
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
@@ -123,6 +126,55 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
   // Determine badge color based on label content (满足 = positive, 不满足 = negative)
   const isPositiveLabel = displayLabel === '满足' || displayLabel === '是' ||
     (displayLabel && !['不满足', '否', '不是', '其他'].some(neg => displayLabel.includes(neg)));
+
+  // Handle click outside to close pinned tooltip
+  useEffect(() => {
+    if (!isPinned) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      // Close if click is outside both the tooltip and the badge
+      if (
+        tooltipRef.current && !tooltipRef.current.contains(target) &&
+        badgeRef.current && !badgeRef.current.contains(target)
+      ) {
+        setIsPinned(false);
+        setShowReasoning(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [isPinned]);
+
+  // Handle mouse enter on badge - show tooltip if not pinned
+  const handleMouseEnter = () => {
+    if (!isPinned && reasoning) {
+      setShowReasoning(true);
+    }
+  };
+
+  // Handle mouse leave on badge - hide tooltip if not pinned
+  const handleMouseLeave = () => {
+    if (!isPinned) {
+      setShowReasoning(false);
+    }
+  };
+
+  // Handle badge click - toggle pin state
+  const handleBadgeClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isPinned) {
+      // Clicking when pinned: unpin and hide
+      setIsPinned(false);
+      setShowReasoning(false);
+    } else {
+      // Clicking when not pinned: pin and show
+      setIsPinned(true);
+      setShowReasoning(true);
+    }
+  };
 
   return (
     <a
@@ -164,15 +216,16 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
         {/* Label badge (top-left) - supports both new binary and legacy category labels */}
         {displayLabel && (
           <div
-            className="absolute top-2 left-2 px-2 py-1 rounded-full cursor-pointer transition-all max-w-[calc(100%-16px)]"
+            ref={badgeRef}
+            className={`absolute top-2 left-2 px-2 py-1 rounded-full cursor-pointer transition-all duration-150 max-w-[calc(100%-16px)] hover:scale-105 hover:brightness-110 ${
+              isPinned ? 'ring-2 ring-white/50 scale-105' : ''
+            }`}
             style={{
               backgroundColor: isPositiveLabel ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
             }}
-            onClick={(e) => {
-              e.preventDefault();
-              setShowReasoning(!showReasoning);
-            }}
-            title={reasoning || '点击查看分析原因'}
+            onClick={handleBadgeClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
           >
             <span className="text-xs text-white font-medium truncate block">{displayLabel}</span>
           </div>
@@ -181,8 +234,13 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
         {/* Reasoning tooltip */}
         {showReasoning && reasoning && (
           <div
-            className="absolute top-12 left-2 right-2 p-2 bg-black/90 rounded-lg z-10"
+            ref={tooltipRef}
+            className={`absolute top-12 left-2 right-2 p-2 bg-black/90 rounded-lg z-10 ${
+              isPinned ? 'ring-1 ring-white/30' : ''
+            }`}
             onClick={(e) => e.preventDefault()}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
           >
             <p className="text-xs text-white">{reasoning}</p>
           </div>
@@ -404,32 +462,23 @@ export default function CleanedResultsViewer({
     }
   };
 
-  // Dynamically extract available label categories from the data
-  const availableLabels = useMemo(() => {
-    if (!selectedFileData?.posts) return [];
+  // Fixed label options - always show both even if count is 0
+  const availableLabels = ['满足', '不满足'];
 
-    const labelSet = new Set<string>();
-    selectedFileData.posts.forEach(post => {
-      const label = getPostLabel(post);
-      if (label) labelSet.add(label);
-    });
+  // Fixed style label options - always show all even if count is 0
+  const availableStyleLabels = ['人物图', '特写图', '环境图', '拼接图', '信息图'];
 
-    return Array.from(labelSet).sort();
-  }, [selectedFileData]);
+  // Helper to count posts by label (handles both new and legacy formats)
+  const getLabelCount = (label: string): number => {
+    if (!selectedFileData?.posts) return 0;
+    return selectedFileData.posts.filter(p => getPostLabel(p) === label).length;
+  };
 
-  // Dynamically extract available style_label categories from the data
-  const availableStyleLabels = useMemo(() => {
-    if (!selectedFileData?.posts) return [];
-
-    const styleSet = new Set<string>();
-    selectedFileData.posts.forEach(post => {
-      if (post.style_label) styleSet.add(post.style_label);
-    });
-
-    // Sort in fixed order: 特写图 > 环境图 > 拼接图 > 信息图
-    const styleOrder = ['特写图', '环境图', '拼接图', '信息图'];
-    return Array.from(styleSet).sort((a, b) => styleOrder.indexOf(a) - styleOrder.indexOf(b));
-  }, [selectedFileData]);
+  // Helper to count posts by style label
+  const getStyleCount = (style: string): number => {
+    if (!selectedFileData?.posts) return 0;
+    return selectedFileData.posts.filter(p => p.style_label === style).length;
+  };
 
   // Filter and sort posts
   const processedPosts = useMemo(() => {
@@ -520,39 +569,29 @@ export default function CleanedResultsViewer({
             </button>
           </div>
 
-          {/* Label filter - 满足/不满足 (dynamically populated from data) */}
-          {availableLabels.length > 0 && (
-            <select
-              value={selectedLabelFilter}
-              onChange={(e) => setSelectedLabelFilter(e.target.value)}
-              className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-            >
-              <option value="all">是否满足 ({selectedFileData?.posts.length || 0})</option>
-              {availableLabels.map(label => {
-                const count = selectedFileData?.posts.filter(p => getPostLabel(p) === label).length || 0;
-                return (
-                  <option key={label} value={label}>{label} ({count})</option>
-                );
-              })}
-            </select>
-          )}
+          {/* Label filter - 满足/不满足 */}
+          <select
+            value={selectedLabelFilter}
+            onChange={(e) => setSelectedLabelFilter(e.target.value)}
+            className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+          >
+            <option value="all">是否满足 ({selectedFileData?.posts.length || 0})</option>
+            {availableLabels.map(label => (
+              <option key={label} value={label}>{label} ({getLabelCount(label)})</option>
+            ))}
+          </select>
 
-          {/* Style label filter - 特写图/环境图/拼接图/信息图 (dynamically populated from data) */}
-          {availableStyleLabels.length > 0 && (
-            <select
-              value={selectedStyleFilter}
-              onChange={(e) => setSelectedStyleFilter(e.target.value)}
-              className="px-3 py-1.5 bg-stone-900 border border-[rgba(217,119,87,0.3)] rounded-lg text-xs text-stone-200"
-            >
-              <option value="all">图片类型 ({selectedFileData?.posts.length || 0})</option>
-              {availableStyleLabels.map(style => {
-                const count = selectedFileData?.posts.filter(p => p.style_label === style).length || 0;
-                return (
-                  <option key={style} value={style}>{style} ({count})</option>
-                );
-              })}
-            </select>
-          )}
+          {/* Style label filter - 人物图/特写图/环境图/拼接图/信息图 */}
+          <select
+            value={selectedStyleFilter}
+            onChange={(e) => setSelectedStyleFilter(e.target.value)}
+            className="px-3 py-1.5 bg-stone-900 border border-[rgba(217,119,87,0.3)] rounded-lg text-xs text-stone-200"
+          >
+            <option value="all">图片类型 ({selectedFileData?.posts.length || 0})</option>
+            {availableStyleLabels.map(style => (
+              <option key={style} value={style}>{style} ({getStyleCount(style)})</option>
+            ))}
+          </select>
 
           {/* Sort indicator (fixed to likes DESC) */}
           <div className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">
