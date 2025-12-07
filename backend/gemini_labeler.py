@@ -1,12 +1,12 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 4.0 - Added concurrent batch processing with ThreadPoolExecutor
-# Changes: Added max_concurrency parameter for parallel API calls, progress tracking for concurrent jobs
-# Previous: v3.1 - Updated label values from 是/否 to 满足/不满足
+# Version: 4.3 - Real-time result tracking for cancellation support
+# Changes: Track results in real-time during batch processing, add get_current_results() method
+# Previous: v4.2 - Graceful error handling with partial results
 #
 # Features:
 # - Concurrent batch processing with configurable parallelism (default: 5)
 # - Binary content matching (满足/不满足) based on user description
-# - Fixed image style classification (特写图/环境图/拼接图/信息图)
+# - 5 mutually exclusive style categories (人物图/特写图/环境图/拼接图/信息图)
 # - Optional likes count inclusion in analysis
 # - Transparent prompting - what you see in UI is what Gemini sees
 # - Structured JSON output with label, style_label, and reasoning
@@ -59,12 +59,13 @@ class LabelingMode(str, Enum):
     FULL = "full"
 
 
-# Fixed style categories for food industry
+# Fixed style categories for food industry (5 mutually exclusive types)
 STYLE_CATEGORIES = [
-    "特写图",  # Close-up shot
-    "环境图",  # Environment/Scene shot
-    "拼接图",  # Collage/Composite
-    "信息图",  # Infographic
+    "人物图",  # Person-focused shot (visual focus on people)
+    "特写图",  # Close-up shot of objects/food (subject fills 80%+ of frame)
+    "环境图",  # Environment/Scene shot (ambiance, location)
+    "拼接图",  # Collage/Composite (multiple images combined)
+    "信息图",  # Infographic (text overlays, lists, menus)
 ]
 
 
@@ -73,12 +74,37 @@ class LabelingResult:
     """Structured result for a single post's labeling"""
     note_id: str
     label: str  # Binary: "满足" or "不满足"
-    style_label: str  # One of: "特写图", "环境图", "拼接图", "信息图"
+    style_label: str  # One of: "人物图", "特写图", "环境图", "拼接图", "信息图"
     reasoning: str  # Explanation in Chinese
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+@dataclass
+class BatchResult:
+    """
+    Wrapper for batch labeling results that supports partial completion.
+    Always returns results even if interrupted by errors.
+    """
+    results: List[LabelingResult]  # All results (successful + errors)
+    total_posts: int  # Total posts attempted
+    successful_count: int  # Successfully labeled posts
+    error_count: int  # Posts with errors
+    is_partial: bool  # True if interrupted by 429/other fatal error
+    interrupted_reason: Optional[str] = None  # Reason for interruption if partial
+    interrupted_at_index: Optional[int] = None  # Index where processing stopped
+
+    def to_dict(self) -> dict:
+        return {
+            "total_posts": self.total_posts,
+            "successful_count": self.successful_count,
+            "error_count": self.error_count,
+            "is_partial": self.is_partial,
+            "interrupted_reason": self.interrupted_reason,
+            "interrupted_at_index": self.interrupted_at_index
+        }
 
 
 class GeminiLabeler:
@@ -116,6 +142,11 @@ class GeminiLabeler:
             "X-Title": "SmartICE XHS Labeler"
         }
 
+        # Real-time tracking for cancellation support
+        self._current_results: List[Optional[LabelingResult]] = []
+        self._current_posts: List[Dict[str, Any]] = []
+        self._results_lock = threading.Lock()
+
         logger.info(f"Initialized GeminiLabeler via OpenRouter with model: {self.model_name}")
 
     def _build_prompt(self, user_description: str) -> str:
@@ -134,16 +165,17 @@ User's filter criteria: {user_description}
 
 Based on this criteria, determine if the post matches (满足) or doesn't match (不满足).
 
-Also classify the image style into one of these fixed categories:
-- 特写图: Close-up shots focusing on the main subject (food, product details)
-- 环境图: Environment/ambiance shots showing location, atmosphere, setting
-- 拼接图: Collage or composite images combining multiple photos
-- 信息图: Infographic style with text overlays, promotional content, lists
+Also classify the image style into ONE of these 5 mutually exclusive categories (判断依据是视觉焦点):
+- 人物图: Person-focused shots where people are the visual focus - facing camera, check-in poses, or people as the main subject even in distant/scenic backgrounds
+- 特写图: Close-up shots of objects/food where the subject fills most of the frame (80%+), surroundings are minimal (not about people)
+- 环境图: Scene/ambiance shots showing location, atmosphere; people may appear but are NOT the visual focus (small in frame, not facing camera)
+- 拼接图: Collage or composite images combining multiple photos into one
+- 信息图: Infographic style with text overlays, promotional content, menus, price lists
 
 Output your analysis in this exact JSON format:
 {{
   "label": "<满足 or 不满足>",
-  "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
+  "style_label": "<人物图 or 特写图 or 环境图 or 拼接图 or 信息图>",
   "reasoning": "<brief explanation in Chinese>"
 }}"""
 
@@ -420,6 +452,29 @@ Output your analysis in this exact JSON format:
                 error=error_str
             )
 
+    def get_current_results(self) -> Optional[tuple[List[Dict[str, Any]], List[LabelingResult]]]:
+        """
+        Get the current partial results during batch processing.
+        Used for saving progress when task is manually cancelled.
+
+        Returns:
+            Tuple of (posts, results) or None if no batch is in progress
+        """
+        with self._results_lock:
+            if not self._current_posts or not self._current_results:
+                return None
+
+            # Filter to only successfully labeled results
+            valid_results = []
+            for r in self._current_results:
+                if r is not None and r.label:  # Has actual label (not empty)
+                    valid_results.append(r)
+
+            if not valid_results:
+                return None
+
+            return (list(self._current_posts), list(self._current_results))
+
     def label_posts_batch(
         self,
         posts: List[Dict[str, Any]],
@@ -429,9 +484,11 @@ Output your analysis in this exact JSON format:
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
         include_likes: bool = False,
         max_concurrency: int = 5
-    ) -> List[LabelingResult]:
+    ) -> BatchResult:
         """
         Label multiple XHS posts in batch with concurrent processing.
+        Returns BatchResult wrapper that always contains results even on errors.
+        Results are tracked in real-time for cancellation support via get_current_results().
 
         Args:
             posts: List of XHS post dictionaries
@@ -443,7 +500,7 @@ Output your analysis in this exact JSON format:
             max_concurrency: Maximum parallel API calls (default: 5)
 
         Returns:
-            List of LabelingResult objects in original order
+            BatchResult containing all results with partial completion info
         """
         if max_posts:
             posts = posts[:max_posts]
@@ -454,20 +511,26 @@ Output your analysis in this exact JSON format:
         completed_count = 0
         rate_limit_hit = False
         rate_limit_error = None
+        interrupted_index = None
         lock = threading.Lock()
+
+        # Initialize real-time tracking (thread-safe)
+        with self._results_lock:
+            self._current_posts = list(posts)
+            self._current_results = [None] * total
 
         logger.info(f"Starting concurrent batch labeling: {total} posts, concurrency={max_concurrency}")
 
         def process_single(idx: int, post: Dict[str, Any]) -> tuple[int, LabelingResult]:
             """Process a single post and return (index, result)"""
-            nonlocal rate_limit_hit, rate_limit_error
+            nonlocal rate_limit_hit, rate_limit_error, interrupted_index
 
-            # Skip if rate limit already hit
+            # Skip if rate limit already hit - mark as skipped (not processed)
             if rate_limit_hit:
                 return idx, LabelingResult(
                     note_id=post.get('note_id', 'unknown'),
-                    label="不满足",
-                    style_label="特写图",
+                    label="",  # Empty = not processed
+                    style_label="",
                     reasoning="",
                     error="Skipped due to rate limit"
                 )
@@ -483,19 +546,23 @@ Output your analysis in this exact JSON format:
                     if not rate_limit_hit:
                         rate_limit_hit = True
                         rate_limit_error = e
+                        interrupted_index = idx
                 return idx, LabelingResult(
                     note_id=note_id,
-                    label="不满足",
-                    style_label="特写图",
+                    label="",  # Empty = not processed
+                    style_label="",
                     reasoning="",
                     error=f"Rate limit: {e}"
                 )
 
         def update_progress(idx: int, result: LabelingResult):
-            """Thread-safe progress update"""
+            """Thread-safe progress update and real-time result tracking"""
             nonlocal completed_count
             with lock:
                 completed_count += 1
+                # Update real-time tracking
+                with self._results_lock:
+                    self._current_results[idx] = result
                 title = posts[idx].get('title', 'Untitled')[:50]
                 if progress_callback:
                     if result.error:
@@ -523,24 +590,41 @@ Output your analysis in this exact JSON format:
                     note_id = posts[idx].get('note_id', 'unknown')
                     error_result = LabelingResult(
                         note_id=note_id,
-                        label="不满足",
-                        style_label="特写图",
+                        label="",  # Empty = not processed
+                        style_label="",
                         reasoning="",
                         error=str(e)
                     )
                     results[idx] = error_result
                     update_progress(idx, error_result)
 
-        # Count successful results
-        success_count = sum(1 for r in results if r and not r.error)
-        logger.info(f"Batch complete: {success_count}/{total} successful")
+        # Count results: successful = has label, error = has error, skipped = neither
+        final_results = [r for r in results if r is not None]
+        success_count = sum(1 for r in final_results if r.label and not r.error)
+        error_count = sum(1 for r in final_results if r.error)
 
-        # Raise rate limit error if hit (after all concurrent tasks finish)
+        logger.info(f"Batch complete: {success_count}/{total} successful, {error_count} errors, partial={rate_limit_hit}")
+
+        # Clear real-time tracking on completion
+        with self._results_lock:
+            self._current_posts = []
+            self._current_results = []
+
+        # Build interrupted reason if applicable
+        interrupted_reason = None
         if rate_limit_hit and rate_limit_error:
-            rate_limit_error.processed_count = success_count
-            raise rate_limit_error
+            interrupted_reason = f"API Rate Limit (429): {rate_limit_error}"
 
-        return [r for r in results if r is not None]
+        # Return BatchResult - never throw exception, always return partial results
+        return BatchResult(
+            results=final_results,
+            total_posts=total,
+            successful_count=success_count,
+            error_count=error_count,
+            is_partial=rate_limit_hit,
+            interrupted_reason=interrupted_reason,
+            interrupted_at_index=interrupted_index
+        )
 
 
 # Test function

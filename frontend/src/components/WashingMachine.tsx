@@ -1,7 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 4.7 - Updated prompt preview to use 满足/不满足 labels
-// Changes: Update buildFullPrompt to match backend's 满足/不满足 label values
-// Previous: v4.6 - Merge image/text analysis into single row, add likes count parameter
+// Version: 4.8 - Add 'partial' status type for interrupted tasks
+// Changes: Added 'partial' to CleaningTask.status union type
+// Previous: v4.7 - Updated prompt preview to use 满足/不满足 labels
 
 'use client';
 
@@ -36,7 +36,7 @@ export interface CleaningTask {
   id: string;
   files: string[];
   config: CleaningConfig;
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'rate_limited';
+  status: 'queued' | 'processing' | 'completed' | 'failed' | 'rate_limited' | 'partial';
   startedAt?: Date;
   completedAt?: Date;
   progress?: number;
@@ -77,16 +77,17 @@ User's filter criteria: ${userDesc}
 
 Based on this criteria, determine if the post matches (满足) or doesn't match (不满足).
 
-Also classify the image style into one of these fixed categories:
-- 特写图: Close-up shots focusing on the main subject (food, product details)
-- 环境图: Environment/ambiance shots showing location, atmosphere, setting
-- 拼接图: Collage or composite images combining multiple photos
-- 信息图: Infographic style with text overlays, promotional content, lists
+Also classify the image style into ONE of these 5 mutually exclusive categories (判断依据是视觉焦点):
+- 人物图: Person-focused shots where people are the visual focus - facing camera, check-in poses, or people as the main subject even in distant/scenic backgrounds
+- 特写图: Close-up shots of objects/food where the subject fills most of the frame (80%+), surroundings are minimal (not about people)
+- 环境图: Scene/ambiance shots showing location, atmosphere; people may appear but are NOT the visual focus (small in frame, not facing camera)
+- 拼接图: Collage or composite images combining multiple photos into one
+- 信息图: Infographic style with text overlays, promotional content, menus, price lists
 
 Output your analysis in this exact JSON format:
 {
   "label": "<满足 or 不满足>",
-  "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
+  "style_label": "<人物图 or 特写图 or 环境图 or 拼接图 or 信息图>",
   "reasoning": "<brief explanation in Chinese>"
 }`;
   };
@@ -280,7 +281,7 @@ Output your analysis in this exact JSON format:
                   <p className="text-xs text-stone-500">
                     <span className="text-stone-600">输出格式:</span>{' '}
                     <span className="text-stone-500 font-mono">label</span> (满足/不满足) + {' '}
-                    <span className="text-stone-500 font-mono">style_label</span> (特写图/环境图/拼接图/信息图) + {' '}
+                    <span className="text-stone-500 font-mono">style_label</span> (人物图/特写图/环境图/拼接图/信息图) + {' '}
                     <span className="text-stone-500 font-mono">reasoning</span> (中文解释)
                   </p>
                 </div>

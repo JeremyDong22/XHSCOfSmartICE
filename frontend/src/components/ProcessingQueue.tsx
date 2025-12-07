@@ -1,7 +1,7 @@
 // Processing Queue - Shows tasks being processed in the wash queue
-// Version: 2.0 - Sort completed tasks by time (latest first)
-// Changes: Sort completedTasks by completedAt/startedAt descending
-// Previous: v1.9 - Added delete button for completed/failed tasks
+// Version: 2.1 - Add 'partial' status support for interrupted tasks
+// Changes: Added 'partial' to StatusBadge config (purple badge with ⏸️ icon), included in completedTasks filter
+// Previous: v2.0 - Sort completed tasks by time (latest first)
 
 'use client';
 
@@ -91,6 +91,7 @@ function StatusBadge({ status }: { status: CleaningTask['status'] }) {
     completed: { text: '已完成', bg: 'bg-[rgba(16,185,129,0.2)]', color: 'text-emerald-300' },
     failed: { text: '失败', bg: 'bg-[rgba(239,68,68,0.2)]', color: 'text-red-300' },
     rate_limited: { text: '⚠️ 频率限制', bg: 'bg-[rgba(245,158,11,0.2)]', color: 'text-amber-300' },
+    partial: { text: '⏸️ 部分完成', bg: 'bg-[rgba(168,85,247,0.2)]', color: 'text-purple-300' },
   };
 
   const config = statusConfig[status];
@@ -340,7 +341,7 @@ export default function ProcessingQueue({ tasks, onCancelTask, onDeleteTask, bac
   const queuedTasks = tasks.filter(t => t.status === 'queued');
   // Sort completed tasks by time (latest first), using completedAt or startedAt
   const completedTasks = tasks
-    .filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'rate_limited')
+    .filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'rate_limited' || t.status === 'partial')
     .sort((a, b) => {
       const timeA = a.completedAt?.getTime() || a.startedAt?.getTime() || 0;
       const timeB = b.completedAt?.getTime() || b.startedAt?.getTime() || 0;

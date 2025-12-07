@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 3.7 - Added concurrent AI labeling support
-# Changes: Added max_concurrency parameter to CleaningRequest for parallel Gemini API calls
-# Previous: v3.6 - Fixed parallel scraping with proper timeouts
+# Version: 4.0 - Add 'partial' to Pydantic status types
+# Changes: Added 'partial' to CleaningTaskStatus and CleaningTaskFull status Literal types
+# Previous: v3.9 - Save partial results on manual cancellation
 
 import os
 import json
@@ -167,7 +167,7 @@ class CleanedResultFile(BaseModel):
 class CleaningTaskStatus(BaseModel):
     """Status of a cleaning task for frontend polling"""
     task_id: str
-    status: Literal["pending", "processing", "completed", "failed", "rate_limited"]
+    status: Literal["pending", "processing", "completed", "failed", "rate_limited", "partial"]
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     output_filename: Optional[str] = None  # Set when completed
@@ -180,7 +180,7 @@ class CleaningTaskFull(BaseModel):
     backend_task_id: str  # Backend task ID (UUID)
     files: List[str]  # Source filenames
     config: CleaningConfigStored
-    status: Literal["queued", "processing", "completed", "failed", "rate_limited"]
+    status: Literal["queued", "processing", "completed", "failed", "rate_limited", "partial"]
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     progress: int = 0
@@ -980,73 +980,146 @@ async def start_cleaning(request: CleaningRequest):
 
             # Run synchronous blocking operations in thread pool to avoid blocking event loop
             # This allows other API requests and SSE connections to continue working
+            # Note: clean_and_label now always returns results, even on 429/errors
             result = await asyncio.to_thread(
                 cleaning_service.clean_and_label,
                 config,
                 progress_callback
             )
+
+            # Always save results (partial or complete)
             send_cleaning_log(task_id, "Saving results...")
             output_path = await asyncio.to_thread(cleaning_service.save_cleaned_result, result, config.output_filename)
             output_filename = os.path.basename(output_path)
             completed_at = datetime.now().isoformat()
-            logger.info(f"Cleaning task {task_id} completed: {output_path}")
-            send_cleaning_log(task_id, f"✓ Task completed! Output: {output_filename}")
 
-            # Update status to completed
-            cleaning_task_statuses[task_id] = CleaningTaskStatus(
-                task_id=task_id,
-                status="completed",
-                started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=completed_at,
-                output_filename=output_filename
-            )
+            # Check if result is partial (interrupted by 429 or other errors)
+            is_partial = result.get("metadata", {}).get("is_partial", False)
+            successful_count = result.get("metadata", {}).get("successfully_labeled", 0)
+            total_posts = result.get("metadata", {}).get("total_posts_output", 0)
 
-            # Update full task data
-            if frontend_task_id in cleaning_tasks_full:
-                cleaning_tasks_full[frontend_task_id].status = "completed"
-                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
-                cleaning_tasks_full[frontend_task_id].progress = 100
-                save_cleaning_tasks(cleaning_tasks_full)
+            if is_partial:
+                # Partial completion - save results but mark as partial
+                partial_info = result.get("metadata", {}).get("partial_completion", {})
+                interrupted_reason = partial_info.get("interrupted_reason", "Unknown interruption")
+
+                logger.warning(f"Cleaning task {task_id} partial: {successful_count}/{total_posts} posts. Reason: {interrupted_reason}")
+                partial_msg = f"⚠️ Partial completion: {successful_count}/{total_posts} posts labeled. Reason: {interrupted_reason}"
+                send_cleaning_log(task_id, partial_msg)
+                send_cleaning_log(task_id, f"✓ Partial results saved to: {output_filename}")
+
+                # Mark as partial (special status indicating partial completion)
+                cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                    task_id=task_id,
+                    status="partial",
+                    started_at=cleaning_task_statuses[task_id].started_at,
+                    completed_at=completed_at,
+                    output_filename=output_filename,
+                    error=partial_msg
+                )
+
+                # Update full task data with partial status
+                if frontend_task_id in cleaning_tasks_full:
+                    cleaning_tasks_full[frontend_task_id].status = "partial"
+                    cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                    cleaning_tasks_full[frontend_task_id].error = partial_msg
+                    cleaning_tasks_full[frontend_task_id].progress = int((successful_count / total_posts) * 100) if total_posts > 0 else 0
+                    save_cleaning_tasks(cleaning_tasks_full)
+            else:
+                # Full completion
+                logger.info(f"Cleaning task {task_id} completed: {output_path}")
+                send_cleaning_log(task_id, f"✓ Task completed! Output: {output_filename}")
+
+                # Update status to completed
+                cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                    task_id=task_id,
+                    status="completed",
+                    started_at=cleaning_task_statuses[task_id].started_at,
+                    completed_at=completed_at,
+                    output_filename=output_filename
+                )
+
+                # Update full task data
+                if frontend_task_id in cleaning_tasks_full:
+                    cleaning_tasks_full[frontend_task_id].status = "completed"
+                    cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                    cleaning_tasks_full[frontend_task_id].progress = 100
+                    save_cleaning_tasks(cleaning_tasks_full)
 
         except asyncio.CancelledError:
             completed_at = datetime.now().isoformat()
-            logger.info(f"Cleaning task {task_id} cancelled")
-            send_cleaning_log(task_id, "✗ Task was cancelled")
-            cleaning_task_statuses[task_id] = CleaningTaskStatus(
-                task_id=task_id,
-                status="failed",
-                started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=completed_at,
-                error="Task was cancelled"
-            )
-            # Update full task data
-            if frontend_task_id in cleaning_tasks_full:
-                cleaning_tasks_full[frontend_task_id].status = "failed"
-                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
-                cleaning_tasks_full[frontend_task_id].error = "Task was cancelled"
-                save_cleaning_tasks(cleaning_tasks_full)
+            logger.info(f"Cleaning task {task_id} cancelled, checking for partial results...")
 
-        except RateLimitError as e:
-            # Handle Gemini API rate limit (429) - pause task instead of fail
-            completed_at = datetime.now().isoformat()
-            logger.warning(f"Cleaning task {task_id} hit rate limit: {e}")
-            rate_limit_msg = f"⚠️ API Rate Limit (429): {e}. Processed {e.processed_count} posts before pausing."
-            send_cleaning_log(task_id, rate_limit_msg)
+            # Check if there are any partial results to save
+            partial_result = cleaning_service.get_partial_result()
 
-            # Mark as rate_limited (special status for frontend to handle)
-            cleaning_task_statuses[task_id] = CleaningTaskStatus(
-                task_id=task_id,
-                status="rate_limited",
-                started_at=cleaning_task_statuses[task_id].started_at,
-                completed_at=completed_at,
-                error=rate_limit_msg
-            )
-            # Update full task data with rate_limited status
-            if frontend_task_id in cleaning_tasks_full:
-                cleaning_tasks_full[frontend_task_id].status = "rate_limited"
-                cleaning_tasks_full[frontend_task_id].completed_at = completed_at
-                cleaning_tasks_full[frontend_task_id].error = rate_limit_msg
-                save_cleaning_tasks(cleaning_tasks_full)
+            if partial_result:
+                # Have partial results - save them
+                try:
+                    send_cleaning_log(task_id, "Task cancelled - saving partial results...")
+                    output_path = await asyncio.to_thread(
+                        cleaning_service.save_cleaned_result,
+                        partial_result,
+                        config.output_filename
+                    )
+                    output_filename = os.path.basename(output_path)
+                    successful_count = partial_result.get("metadata", {}).get("successfully_labeled", 0)
+                    total_posts = partial_result.get("metadata", {}).get("total_posts_output", 0)
+
+                    partial_msg = f"⚠️ Cancelled: {successful_count}/{total_posts} posts labeled and saved"
+                    send_cleaning_log(task_id, partial_msg)
+                    send_cleaning_log(task_id, f"✓ Partial results saved to: {output_filename}")
+
+                    # Mark as partial (saved some results)
+                    cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                        task_id=task_id,
+                        status="partial",
+                        started_at=cleaning_task_statuses[task_id].started_at,
+                        completed_at=completed_at,
+                        output_filename=output_filename,
+                        error=partial_msg
+                    )
+                    if frontend_task_id in cleaning_tasks_full:
+                        cleaning_tasks_full[frontend_task_id].status = "partial"
+                        cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                        cleaning_tasks_full[frontend_task_id].error = partial_msg
+                        cleaning_tasks_full[frontend_task_id].progress = int((successful_count / total_posts) * 100) if total_posts > 0 else 0
+                        save_cleaning_tasks(cleaning_tasks_full)
+
+                    logger.info(f"Cleaning task {task_id} cancelled with partial save: {output_filename}")
+
+                except Exception as save_error:
+                    logger.error(f"Failed to save partial results on cancellation: {save_error}")
+                    send_cleaning_log(task_id, f"✗ Task cancelled (failed to save partial: {save_error})")
+                    cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                        task_id=task_id,
+                        status="failed",
+                        started_at=cleaning_task_statuses[task_id].started_at,
+                        completed_at=completed_at,
+                        error=f"Cancelled, partial save failed: {save_error}"
+                    )
+                    if frontend_task_id in cleaning_tasks_full:
+                        cleaning_tasks_full[frontend_task_id].status = "failed"
+                        cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                        cleaning_tasks_full[frontend_task_id].error = f"Cancelled, partial save failed: {save_error}"
+                        save_cleaning_tasks(cleaning_tasks_full)
+            else:
+                # No partial results to save
+                send_cleaning_log(task_id, "✗ Task cancelled (no results to save)")
+                cleaning_task_statuses[task_id] = CleaningTaskStatus(
+                    task_id=task_id,
+                    status="failed",
+                    started_at=cleaning_task_statuses[task_id].started_at,
+                    completed_at=completed_at,
+                    error="Task was cancelled (no results)"
+                )
+                if frontend_task_id in cleaning_tasks_full:
+                    cleaning_tasks_full[frontend_task_id].status = "failed"
+                    cleaning_tasks_full[frontend_task_id].completed_at = completed_at
+                    cleaning_tasks_full[frontend_task_id].error = "Task was cancelled (no results)"
+                    save_cleaning_tasks(cleaning_tasks_full)
+
+                logger.info(f"Cleaning task {task_id} cancelled with no partial results to save")
 
         except Exception as e:
             completed_at = datetime.now().isoformat()

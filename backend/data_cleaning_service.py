@@ -1,8 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 2.6 - Support partial result saving on manual cancellation
-# Changes: Track intermediate results during processing, add get_partial_result() method
-#          for saving partial results when task is cancelled manually
-# Previous: v2.5 - Output filename includes search keywords from source files
+# Version: 2.7 - Real-time partial result tracking via labeler
+# Changes: Query GeminiLabeler.get_current_results() for real-time progress on cancellation
+# Previous: v2.6 - Support partial result saving on manual cancellation
 
 import os
 import json
@@ -244,6 +243,7 @@ class DataCleaningService:
         """
         Execute full cleaning and labeling pipeline.
         Always returns results, even if interrupted by 429 or other errors.
+        Tracks intermediate results for cancellation support via get_partial_result().
 
         Args:
             config: Cleaning configuration
@@ -253,12 +253,58 @@ class DataCleaningService:
             Dictionary with metadata and processed posts (may be partial)
         """
         start_time = datetime.now()
+        self._processing_start_time = start_time
+        self._current_partial_result = None  # Reset at start
         batch_result: Optional[BatchResult] = None
+        loaded_files: List[str] = []
+        total_input = 0
 
         def log(msg: str):
             logger.info(msg)
             if progress_callback:
                 progress_callback(msg)
+
+        def update_partial_result(posts: List[Dict], batch_res: Optional[BatchResult] = None, reason: str = ""):
+            """Update tracked partial result for cancellation support"""
+            processing_time = (datetime.now() - start_time).total_seconds()
+            is_partial = batch_res.is_partial if batch_res else True
+            successful = batch_res.successful_count if batch_res else sum(1 for p in posts if p.get("label"))
+
+            self._current_partial_result = {
+                "metadata": {
+                    "cleaned_at": datetime.now().isoformat(),
+                    "processed_by": self.labeler.model_name if self.labeler else "no_labeling",
+                    "processing_time_seconds": round(processing_time, 2),
+                    "original_files": loaded_files,
+                    "total_posts_input": total_input,
+                    "total_posts_output": len(posts),
+                    "is_partial": is_partial,
+                    "successfully_labeled": successful,
+                    "partial_completion": {
+                        "interrupted_reason": reason or (batch_res.interrupted_reason if batch_res else "Manual cancellation"),
+                        "interrupted_at_index": batch_res.interrupted_at_index if batch_res else None,
+                        "error_count": batch_res.error_count if batch_res else 0,
+                        "total_attempted": batch_res.total_posts if batch_res else len(posts)
+                    }
+                },
+                "posts": posts
+            }
+            # Add config metadata
+            if config.filter_by:
+                self._current_partial_result["metadata"]["filter_by_condition"] = {
+                    "metric": config.filter_by.metric,
+                    "operator": config.filter_by.operator,
+                    "value": config.filter_by.value
+                }
+            if config.label_by:
+                self._current_partial_result["metadata"]["label_by_condition"] = {
+                    "image_target": config.label_by.image_target,
+                    "text_target": config.label_by.text_target,
+                    "include_likes": config.label_by.include_likes,
+                    "user_description": config.label_by.user_description,
+                    "full_prompt": config.label_by.full_prompt,
+                    "style_categories": ["人物图", "特写图", "环境图", "拼接图", "信息图"]
+                }
 
         # Step 1: Load posts from files
         log(f"Loading posts from {len(config.source_files)} file(s)...")
@@ -272,11 +318,16 @@ class DataCleaningService:
             all_posts = self._apply_filter(all_posts, config.filter_by)
             log(f"After filter: {len(all_posts)} posts remaining")
 
+        # Update partial result after filtering (before labeling starts)
+        update_partial_result(all_posts, reason="Before labeling")
+
         # Step 3: Apply labels (if enabled) with concurrent processing
         # Returns partial results on 429/errors instead of throwing
         if config.label_by:
             log(f"Starting labeling (concurrency={config.max_concurrency}): {config.label_by.user_description[:50]}...")
             all_posts, batch_result = self._apply_labels(all_posts, config.label_by, progress_callback, config.max_concurrency)
+            # Update partial result after labeling
+            update_partial_result(all_posts, batch_result)
 
         # Step 4: Calculate processing time
         end_time = datetime.now()
@@ -333,7 +384,98 @@ class DataCleaningService:
 
         status = "PARTIAL" if is_partial else "complete"
         logger.info(f"Cleaning {status} in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts (labeled: {successful_count})")
+
+        # Clear partial result on successful completion (no longer needed)
+        self._current_partial_result = None
+        self._processing_start_time = None
+
         return result
+
+    def get_partial_result(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the current partial result if available.
+        Used for saving progress when task is manually cancelled.
+        Queries GeminiLabeler for real-time results during batch processing.
+
+        Returns:
+            Partial result dictionary or None if no labeling has been done yet
+        """
+        # First try to get real-time results from the labeler (during active processing)
+        if self.labeler is not None:
+            current = self.labeler.get_current_results()
+            if current is not None:
+                posts, results = current
+                # Merge labels into posts
+                labeled_posts = []
+                labeled_count = 0
+                for post, result in zip(posts, results):
+                    labeled_post = post.copy()
+                    if result is not None:
+                        labeled_post["label"] = result.label
+                        labeled_post["style_label"] = result.style_label
+                        labeled_post["label_reasoning"] = result.reasoning
+                        if result.error:
+                            labeled_post["label_error"] = result.error
+                        if result.label:  # Has actual label
+                            labeled_count += 1
+                    labeled_posts.append(labeled_post)
+
+                if labeled_count > 0:
+                    # Build result from real-time data
+                    processing_time = 0
+                    if self._processing_start_time:
+                        processing_time = (datetime.now() - self._processing_start_time).total_seconds()
+
+                    result = {
+                        "metadata": {
+                            "cleaned_at": datetime.now().isoformat(),
+                            "processed_by": self.labeler.model_name,
+                            "processing_time_seconds": round(processing_time, 2),
+                            "original_files": self._current_partial_result.get("metadata", {}).get("original_files", []) if self._current_partial_result else [],
+                            "total_posts_input": self._current_partial_result.get("metadata", {}).get("total_posts_input", len(posts)) if self._current_partial_result else len(posts),
+                            "total_posts_output": len(labeled_posts),
+                            "is_partial": True,
+                            "successfully_labeled": labeled_count,
+                            "partial_completion": {
+                                "interrupted_reason": "Manual cancellation",
+                                "interrupted_at_index": None,
+                                "error_count": sum(1 for r in results if r and r.error),
+                                "total_attempted": len(posts)
+                            }
+                        },
+                        "posts": labeled_posts
+                    }
+
+                    # Copy config metadata from _current_partial_result if available
+                    if self._current_partial_result:
+                        if "filter_by_condition" in self._current_partial_result.get("metadata", {}):
+                            result["metadata"]["filter_by_condition"] = self._current_partial_result["metadata"]["filter_by_condition"]
+                        if "label_by_condition" in self._current_partial_result.get("metadata", {}):
+                            result["metadata"]["label_by_condition"] = self._current_partial_result["metadata"]["label_by_condition"]
+
+                    logger.info(f"Returning real-time partial result: {labeled_count}/{len(posts)} posts labeled")
+                    return result
+
+        # Fall back to stored partial result
+        if self._current_partial_result is None:
+            logger.info("No partial result available")
+            return None
+
+        # Check if any posts have been labeled
+        posts = self._current_partial_result.get("posts", [])
+        labeled_count = sum(1 for p in posts if p.get("label"))
+
+        if labeled_count == 0:
+            # No labeling done yet, don't save
+            logger.info("No labeled posts found in partial result, skipping save")
+            return None
+
+        # Update the interrupted reason to indicate manual cancellation
+        self._current_partial_result["metadata"]["partial_completion"]["interrupted_reason"] = "Manual cancellation"
+        self._current_partial_result["metadata"]["is_partial"] = True
+
+        logger.info(f"Returning stored partial result: {labeled_count} posts labeled")
+        return self._current_partial_result
 
     def _extract_search_keywords(self, filenames: List[str]) -> List[str]:
         """

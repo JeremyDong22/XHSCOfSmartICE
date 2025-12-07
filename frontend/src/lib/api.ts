@@ -352,7 +352,7 @@ export interface CleanedResultMetadata {
 
 export interface CleanedPost extends XHSPost {
   label?: string;  // Binary: "是" or "不是"
-  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图"
+  style_label?: string;  // One of: "人物图", "特写图", "环境图", "拼接图", "信息图"
   label_reasoning?: string;  // Explanation in Chinese
 }
 
