@@ -1,9 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 3.4 - Fixed rate_limited status Pydantic validation
-# Changes:
-# - Added "rate_limited" to CleaningTaskStatus and CleaningTaskFull Literal types
-# - Fixed SSE status check to include rate_limited status
-# Previous: Added cancel cleaning task endpoint
+# Version: 3.6 - Fixed parallel scraping with proper timeouts
+# Changes: Fixed parallel scraping, added graceful shutdown timeout support
+# Previous: Added include_likes field to LabelByRequest and LabelByConfigStored
 
 import os
 import json
@@ -112,6 +110,7 @@ class LabelByRequest(BaseModel):
     """Request model for labeling: binary classification (是/否) + style labeling (4 fixed categories)"""
     image_target: Optional[Literal["cover_image", "images"]] = None
     text_target: Optional[Literal["title", "content"]] = None
+    include_likes: bool = False  # Whether to include likes count in AI analysis
     user_description: str  # User's description of what posts they want to filter (for binary classification)
     full_prompt: str  # Complete prompt that will be sent to Gemini (for transparency)
 
@@ -130,6 +129,7 @@ class LabelByConfigStored(BaseModel):
     enabled: bool = False
     imageTarget: Optional[str] = None
     textTarget: Optional[str] = None
+    includeLikes: bool = False  # Whether to include likes count in AI analysis
     userDescription: str = ""  # User's description of desired posts (for binary classification)
     fullPrompt: str = ""  # Complete prompt sent to Gemini
 
@@ -934,6 +934,7 @@ async def start_cleaning(request: CleaningRequest):
         config.label_by = LabelByCondition(
             image_target=request.label_by.image_target,
             text_target=request.label_by.text_target,
+            include_likes=request.label_by.include_likes,
             user_description=request.label_by.user_description,
             full_prompt=request.label_by.full_prompt
         )

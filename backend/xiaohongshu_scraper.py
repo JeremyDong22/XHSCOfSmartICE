@@ -1,7 +1,7 @@
 # Xiaohongshu scraper module
-# Version: 2.4 - Added database integration for post storage and deduplication
-# Changes: Save posts to PostgreSQL database, track new vs duplicate posts
-# Previous: Added log file output alongside JSON results
+# Version: 2.5 - Fixed parallel scraping support with proper timeouts
+# Changes: Changed networkidle to load state, added timeouts to prevent hanging
+# Previous: Added database integration for post storage and deduplication
 
 import asyncio
 import json
@@ -113,8 +113,10 @@ class XHSScraper:
             await progress_callback(f"Navigating to search for '{keyword}'...")
 
         search_url = f"https://www.xiaohongshu.com/search_result?keyword={quote(keyword)}&source=web_search_result_notes"
-        await self.page.goto(search_url)
-        await self.page.wait_for_load_state('networkidle')
+        # Use 'load' instead of 'networkidle' to avoid hanging on continuous XHS network requests
+        # Add timeout to prevent blocking other parallel scrape tasks
+        await self.page.goto(search_url, timeout=30000)
+        await self.page.wait_for_load_state('load', timeout=15000)
         await self._random_delay(2, 4)
 
         # Check session status
@@ -324,8 +326,10 @@ class XHSScraper:
             await progress_callback(f"Navigating to search for '{keyword}'...")
 
         search_url = f"https://www.xiaohongshu.com/search_result?keyword={quote(keyword)}&source=web_search_result_notes"
-        await self.page.goto(search_url)
-        await self.page.wait_for_load_state('networkidle')
+        # Use 'load' instead of 'networkidle' to avoid hanging on continuous XHS network requests
+        # Add timeout to prevent blocking other parallel scrape tasks
+        await self.page.goto(search_url, timeout=30000)
+        await self.page.wait_for_load_state('load', timeout=15000)
         await self._random_delay(2, 4)
 
         # Check session status
