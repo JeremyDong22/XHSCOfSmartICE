@@ -1,7 +1,7 @@
 // Washing Machine - Main data cleaning tool component
-// Version: 4.5 - Remove AI label checkbox, rename to AI清洗
-// Changes: labelBy.enabled always true (no checkbox), "AI 标签" -> "AI 清洗"
-// Previous: Complete UI localization to Chinese
+// Version: 4.7 - Updated prompt preview to use 满足/不满足 labels
+// Changes: Update buildFullPrompt to match backend's 满足/不满足 label values
+// Previous: v4.6 - Merge image/text analysis into single row, add likes count parameter
 
 'use client';
 
@@ -21,6 +21,8 @@ export interface LabelByConfig {
   imageTarget: 'cover_image' | 'images' | null;
   // Text group - can select one or none
   textTarget: 'title' | 'content' | null;
+  // Include likes count in AI analysis
+  includeLikes: boolean;
   userDescription: string;  // User's description of desired posts
   fullPrompt: string;  // Complete prompt sent to Gemini (for transparency)
 }
@@ -58,6 +60,7 @@ export default function WashingMachine({
     enabled: true,
     imageTarget: null,
     textTarget: null,
+    includeLikes: false,
     userDescription: '',
     fullPrompt: '',
   });
@@ -72,7 +75,7 @@ export default function WashingMachine({
 
 User's filter criteria: ${userDesc}
 
-Based on this criteria, determine if the post matches (是) or doesn't match (否).
+Based on this criteria, determine if the post matches (满足) or doesn't match (不满足).
 
 Also classify the image style into one of these fixed categories:
 - 特写图: Close-up shots focusing on the main subject (food, product details)
@@ -82,7 +85,7 @@ Also classify the image style into one of these fixed categories:
 
 Output your analysis in this exact JSON format:
 {
-  "label": "<是 or 否>",
+  "label": "<满足 or 不满足>",
   "style_label": "<特写图 or 环境图 or 拼接图 or 信息图>",
   "reasoning": "<brief explanation in Chinese>"
 }`;
@@ -98,7 +101,8 @@ Output your analysis in this exact JSON format:
   };
 
   // Validation - labelBy.enabled is always true, no need to check
-  const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null;
+  // At least one of: image target, text target, or likes must be selected
+  const hasAtLeastOneTarget = labelBy.imageTarget !== null || labelBy.textTarget !== null || labelBy.includeLikes;
   const hasUserDescription = labelBy.userDescription.trim().length > 0;
   const isValid = selectedFiles.length > 0 && hasAtLeastOneTarget && hasUserDescription;
 
@@ -169,59 +173,59 @@ Output your analysis in this exact JSON format:
                       labelBy.imageTarget === 'images' ? '全部图片' : null,
                       labelBy.textTarget === 'title' ? '帖子标题' :
                       labelBy.textTarget === 'content' ? '标题 + 正文' : null,
+                      labelBy.includeLikes ? '点赞数量' : null,
                     ].filter(Boolean).join(' + ')}
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Image Analysis Group - Only Cover Image available (All Images requires detail scraping) */}
+            {/* Combined AI Input Selection - Image, Text, and Likes in one row */}
             <div className="mb-4">
-              <label className="block text-xs text-stone-500 mb-2">图片分析:</label>
-              <div className="grid grid-cols-1 gap-2">
-                {[
-                  { value: 'cover_image' as const, label: '帖子封面' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setLabelBy({
-                      ...labelBy,
-                      imageTarget: labelBy.imageTarget === option.value ? null : option.value,
-                    })}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      labelBy.imageTarget === option.value
-                        ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
-                        : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Text Analysis Group - Only Title available (Content requires detail scraping) */}
-            <div className="mb-4">
-              <label className="block text-xs text-stone-500 mb-2">文本分析:</label>
-              <div className="grid grid-cols-1 gap-2">
-                {[
-                  { value: 'title' as const, label: '帖子标题' },
-                ].map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setLabelBy({
-                      ...labelBy,
-                      textTarget: labelBy.textTarget === option.value ? null : option.value,
-                    })}
-                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                      labelBy.textTarget === option.value
-                        ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
-                        : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <label className="block text-xs text-stone-500 mb-2">将以下传给AI:</label>
+              <div className="flex gap-2">
+                {/* Cover Image Option */}
+                <button
+                  onClick={() => setLabelBy({
+                    ...labelBy,
+                    imageTarget: labelBy.imageTarget === 'cover_image' ? null : 'cover_image',
+                  })}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                    labelBy.imageTarget === 'cover_image'
+                      ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
+                      : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
+                  }`}
+                >
+                  帖子封面
+                </button>
+                {/* Title Option */}
+                <button
+                  onClick={() => setLabelBy({
+                    ...labelBy,
+                    textTarget: labelBy.textTarget === 'title' ? null : 'title',
+                  })}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                    labelBy.textTarget === 'title'
+                      ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
+                      : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
+                  }`}
+                >
+                  帖子标题
+                </button>
+                {/* Likes Count Option */}
+                <button
+                  onClick={() => setLabelBy({
+                    ...labelBy,
+                    includeLikes: !labelBy.includeLikes,
+                  })}
+                  className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                    labelBy.includeLikes
+                      ? 'bg-[rgba(217,119,87,0.2)] text-[#E8A090] border border-[rgba(217,119,87,0.3)]'
+                      : 'bg-stone-800 text-stone-400 border border-stone-700 hover:border-stone-600'
+                  }`}
+                >
+                  点赞数量
+                </button>
               </div>
             </div>
 
@@ -275,7 +279,7 @@ Output your analysis in this exact JSON format:
                 <div className="mt-3 pt-3 border-t border-stone-700/30">
                   <p className="text-xs text-stone-500">
                     <span className="text-stone-600">输出格式:</span>{' '}
-                    <span className="text-stone-500 font-mono">label</span> (是/否) + {' '}
+                    <span className="text-stone-500 font-mono">label</span> (满足/不满足) + {' '}
                     <span className="text-stone-500 font-mono">style_label</span> (特写图/环境图/拼接图/信息图) + {' '}
                     <span className="text-stone-500 font-mono">reasoning</span> (中文解释)
                   </p>
@@ -310,7 +314,7 @@ Output your analysis in this exact JSON format:
         )}
         {!isValid && selectedFiles.length > 0 && !hasAtLeastOneTarget && (
           <p className="mt-2 text-xs text-center text-stone-500">
-            请至少选择一个分析目标（图片或文本）
+            请至少选择一项传给AI（封面、标题或点赞数量）
           </p>
         )}
         {!isValid && selectedFiles.length > 0 && hasAtLeastOneTarget && !hasUserDescription && (

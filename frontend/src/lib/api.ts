@@ -1,8 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 2.2 - Added cancel cleaning task API
-// Changes:
-// - Added cancelCleaningTask function to stop running cleaning tasks
-// Previous: Food industry refactor with binary classification and style labels
+// Version: 2.3 - Added includeLikes support for AI cleaning
+// Changes: Added include_likes field to LabelByRequest and LabelByConfigStored
+// Previous: Added cancel cleaning task API
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -302,6 +301,7 @@ export interface FilterByRequest {
 export interface LabelByRequest {
   image_target?: 'cover_image' | 'images' | null;
   text_target?: 'title' | 'content' | null;
+  include_likes?: boolean;  // Whether to include likes count in AI analysis
   user_description: string;  // User's description of what posts they want to filter
   full_prompt: string;  // Complete prompt sent to Gemini (for transparency)
 }
@@ -428,6 +428,7 @@ export interface LabelByConfigStored {
   enabled: boolean;
   imageTarget: string | null;
   textTarget: string | null;
+  includeLikes: boolean;
   userDescription: string;
   fullPrompt: string;
 }

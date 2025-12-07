@@ -1,7 +1,7 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 3.1 - UI localization to Chinese
-// Changes: All labels, buttons, and messages translated to Chinese
-// Previous: Food industry refactor with style_label and label filters
+// Version: 3.3 - Added style_label filter and updated label values
+// Changes: Added dropdown filter for style_label, updated label display to 满足/不满足
+// Previous: v3.2 - Support both old and new data formats
 
 'use client';
 
@@ -23,6 +23,8 @@ export interface CleaningMetadata {
     textTarget: string | null;
     userDescription: string;
     fullPrompt: string;
+    // Legacy format fields
+    categories?: Array<{ name: string; description: string }>;
   };
   originalFiles: string[];
   totalPostsInput: number;
@@ -31,9 +33,21 @@ export interface CleaningMetadata {
 
 export interface LabeledPost extends XHSPost {
   // New structure: binary label + style label
-  label?: string;  // Binary: "是" or "否"
-  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图"
-  label_reasoning?: string;  // Explanation in Chinese
+  label?: string;  // Binary: "满足" or "不满足" (new format)
+  style_label?: string;  // One of: "特写图", "环境图", "拼接图", "信息图" (new format)
+  label_reasoning?: string;  // Explanation
+  // Legacy format support
+  labels?: { label?: string };  // Old format: labels.label contains category name
+  label_confidence?: number;  // Old format confidence
+}
+
+// Helper function to extract label from post (supports both formats)
+function getPostLabel(post: LabeledPost): string | undefined {
+  // New format: direct label field
+  if (post.label) return post.label;
+  // Legacy format: labels.label
+  if (post.labels?.label) return post.labels.label;
+  return undefined;
 }
 
 export interface CleanedResultData {
@@ -93,7 +107,7 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-// Post card component with label display
+// Post card component with label display (supports both new and legacy formats)
 function LabeledPostCard({ post }: { post: LabeledPost }) {
   const [imageError, setImageError] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
@@ -101,6 +115,14 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
 
   const aspectRatio = post.card_height / post.card_width;
   const displayHeight = Math.min(Math.max(aspectRatio * 100, 100), 180);
+
+  // Get label from either new or legacy format
+  const displayLabel = getPostLabel(post);
+  const reasoning = post.label_reasoning;
+
+  // Determine badge color based on label content (满足 = positive, 不满足 = negative)
+  const isPositiveLabel = displayLabel === '满足' || displayLabel === '是' ||
+    (displayLabel && !['不满足', '否', '不是', '其他'].some(neg => displayLabel.includes(neg)));
 
   return (
     <a
@@ -139,37 +161,44 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
           </div>
         )}
 
-        {/* Label badge (top-left) - 是/否 with hover to show reasoning */}
-        {post.label && (
+        {/* Label badge (top-left) - supports both new binary and legacy category labels */}
+        {displayLabel && (
           <div
-            className="absolute top-2 left-2 px-2 py-1 rounded-full cursor-pointer transition-all"
+            className="absolute top-2 left-2 px-2 py-1 rounded-full cursor-pointer transition-all max-w-[calc(100%-16px)]"
             style={{
-              backgroundColor: post.label === '是' ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
+              backgroundColor: isPositiveLabel ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
             }}
             onClick={(e) => {
               e.preventDefault();
               setShowReasoning(!showReasoning);
             }}
-            title={post.label_reasoning || '点击查看分析原因'}
+            title={reasoning || '点击查看分析原因'}
           >
-            <span className="text-xs text-white font-medium">{post.label}</span>
+            <span className="text-xs text-white font-medium truncate block">{displayLabel}</span>
           </div>
         )}
 
         {/* Reasoning tooltip */}
-        {showReasoning && post.label_reasoning && (
+        {showReasoning && reasoning && (
           <div
             className="absolute top-12 left-2 right-2 p-2 bg-black/90 rounded-lg z-10"
             onClick={(e) => e.preventDefault()}
           >
-            <p className="text-xs text-white">{post.label_reasoning}</p>
+            <p className="text-xs text-white">{reasoning}</p>
           </div>
         )}
 
-        {/* Style label badge (bottom-right) */}
+        {/* Style label badge (bottom-right) - only for new format */}
         {post.style_label && (
           <div className="absolute bottom-2 right-2 px-2 py-1 bg-[rgba(217,119,87,0.9)] rounded-full">
             <span className="text-xs text-white font-medium">{post.style_label}</span>
+          </div>
+        )}
+
+        {/* Confidence badge (bottom-right) - for legacy format */}
+        {!post.style_label && post.label_confidence !== undefined && (
+          <div className="absolute bottom-2 right-2 px-2 py-1 bg-[rgba(217,119,87,0.9)] rounded-full">
+            <span className="text-xs text-white font-medium">{Math.round(post.label_confidence * 100)}%</span>
           </div>
         )}
 
@@ -328,8 +357,8 @@ export default function CleanedResultsViewer({
   const [viewMode, setViewMode] = useState<ViewMode>('visual');
   const [sortField, setSortField] = useState<SortField>('likes');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('all');
   const [selectedLabelFilter, setSelectedLabelFilter] = useState<string>('all');
+  const [selectedStyleFilter, setSelectedStyleFilter] = useState<string>('all');
   const [deleting, setDeleting] = useState<string | null>(null);
 
   // Sort files by cleanedAt date (newest first)
@@ -343,6 +372,8 @@ export default function CleanedResultsViewer({
       setSelectedFile(null);
     } else {
       setSelectedFile(filename);
+      setSelectedLabelFilter('all');  // Reset filters when selecting new file
+      setSelectedStyleFilter('all');
       onFileSelect?.(filename);
     }
   };
@@ -373,11 +404,32 @@ export default function CleanedResultsViewer({
     }
   };
 
-  // Fixed style categories
-  const styleCategories = ['特写图', '环境图', '拼接图', '信息图'];
+  // Dynamically extract available label categories from the data
+  const availableLabels = useMemo(() => {
+    if (!selectedFileData?.posts) return [];
 
-  // Binary label categories
-  const labelCategories = ['是', '否'];
+    const labelSet = new Set<string>();
+    selectedFileData.posts.forEach(post => {
+      const label = getPostLabel(post);
+      if (label) labelSet.add(label);
+    });
+
+    return Array.from(labelSet).sort();
+  }, [selectedFileData]);
+
+  // Dynamically extract available style_label categories from the data
+  const availableStyleLabels = useMemo(() => {
+    if (!selectedFileData?.posts) return [];
+
+    const styleSet = new Set<string>();
+    selectedFileData.posts.forEach(post => {
+      if (post.style_label) styleSet.add(post.style_label);
+    });
+
+    // Sort in fixed order: 特写图 > 环境图 > 拼接图 > 信息图
+    const styleOrder = ['特写图', '环境图', '拼接图', '信息图'];
+    return Array.from(styleSet).sort((a, b) => styleOrder.indexOf(a) - styleOrder.indexOf(b));
+  }, [selectedFileData]);
 
   // Filter and sort posts
   const processedPosts = useMemo(() => {
@@ -385,14 +437,14 @@ export default function CleanedResultsViewer({
 
     let result = [...selectedFileData.posts];
 
-    // Filter by style_label (first layer)
-    if (selectedStyleFilter !== 'all') {
-      result = result.filter(post => post.style_label === selectedStyleFilter);
+    // Filter by label (supports both new and legacy formats)
+    if (selectedLabelFilter !== 'all') {
+      result = result.filter(post => getPostLabel(post) === selectedLabelFilter);
     }
 
-    // Filter by label (second layer - 是/不是)
-    if (selectedLabelFilter !== 'all') {
-      result = result.filter(post => post.label === selectedLabelFilter);
+    // Filter by style_label
+    if (selectedStyleFilter !== 'all') {
+      result = result.filter(post => post.style_label === selectedStyleFilter);
     }
 
     // Sort by likes (default: high to low)
@@ -403,7 +455,7 @@ export default function CleanedResultsViewer({
     });
 
     return result;
-  }, [selectedFileData, selectedStyleFilter, selectedLabelFilter, sortField, sortOrder]);
+  }, [selectedFileData, selectedLabelFilter, selectedStyleFilter, sortField, sortOrder]);
 
   if (files.length === 0) {
     return (
@@ -468,29 +520,39 @@ export default function CleanedResultsViewer({
             </button>
           </div>
 
-          {/* Style filter (first layer) */}
-          <select
-            value={selectedStyleFilter}
-            onChange={(e) => setSelectedStyleFilter(e.target.value)}
-            className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-          >
-            <option value="all">全部风格</option>
-            {styleCategories.map(style => (
-              <option key={style} value={style}>{style}</option>
-            ))}
-          </select>
+          {/* Label filter - 满足/不满足 (dynamically populated from data) */}
+          {availableLabels.length > 0 && (
+            <select
+              value={selectedLabelFilter}
+              onChange={(e) => setSelectedLabelFilter(e.target.value)}
+              className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
+            >
+              <option value="all">是否满足 ({selectedFileData?.posts.length || 0})</option>
+              {availableLabels.map(label => {
+                const count = selectedFileData?.posts.filter(p => getPostLabel(p) === label).length || 0;
+                return (
+                  <option key={label} value={label}>{label} ({count})</option>
+                );
+              })}
+            </select>
+          )}
 
-          {/* Label filter (second layer) */}
-          <select
-            value={selectedLabelFilter}
-            onChange={(e) => setSelectedLabelFilter(e.target.value)}
-            className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200"
-          >
-            <option value="all">全部标签</option>
-            {labelCategories.map(label => (
-              <option key={label} value={label}>{label}</option>
-            ))}
-          </select>
+          {/* Style label filter - 特写图/环境图/拼接图/信息图 (dynamically populated from data) */}
+          {availableStyleLabels.length > 0 && (
+            <select
+              value={selectedStyleFilter}
+              onChange={(e) => setSelectedStyleFilter(e.target.value)}
+              className="px-3 py-1.5 bg-stone-900 border border-[rgba(217,119,87,0.3)] rounded-lg text-xs text-stone-200"
+            >
+              <option value="all">图片类型 ({selectedFileData?.posts.length || 0})</option>
+              {availableStyleLabels.map(style => {
+                const count = selectedFileData?.posts.filter(p => p.style_label === style).length || 0;
+                return (
+                  <option key={style} value={style}>{style} ({count})</option>
+                );
+              })}
+            </select>
+          )}
 
           {/* Sort indicator (fixed to likes DESC) */}
           <div className="px-3 py-1.5 bg-stone-900 border border-stone-700 rounded-lg text-xs text-stone-200">

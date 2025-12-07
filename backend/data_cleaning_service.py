@@ -1,11 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 2.1 - Food industry refactor: binary classification with style labels
-# Changes:
-# - Accept user description instead of category list
-# - Store full prompt for transparency
-# - Update result structure to include label, style_label, reasoning
-# - Remove LabelCategory dataclass (now using simple user description)
-# Previous: Re-export RateLimitError for API layer to catch
+# Version: 2.2 - Added include_likes support for AI cleaning
+# Changes: Added include_likes field to LabelByCondition to pass likes count to AI
+# Previous: Food industry refactor: binary classification with style labels
 
 import os
 import json
@@ -56,8 +52,9 @@ class LabelByCondition:
     """Label condition for Gemini binary categorization"""
     image_target: Optional[Literal["cover_image", "images"]]
     text_target: Optional[Literal["title", "content"]]
-    user_description: str  # User's description of what posts they want to filter
-    full_prompt: str  # Complete prompt sent to Gemini (for transparency)
+    include_likes: bool = False  # Whether to include likes count in AI analysis
+    user_description: str = ""  # User's description of what posts they want to filter
+    full_prompt: str = ""  # Complete prompt sent to Gemini (for transparency)
 
     def to_labeling_mode(self) -> LabelingMode:
         """Convert UI selections to GeminiLabeler LabelingMode"""
@@ -199,7 +196,8 @@ class DataCleaningService:
             posts=posts,
             user_description=label_condition.user_description,
             mode=mode,
-            progress_callback=labeler_progress
+            progress_callback=labeler_progress,
+            include_likes=label_condition.include_likes
         )
 
         # Merge labels back into posts
@@ -290,6 +288,7 @@ class DataCleaningService:
             result["metadata"]["label_by_condition"] = {
                 "image_target": config.label_by.image_target,
                 "text_target": config.label_by.text_target,
+                "include_likes": config.label_by.include_likes,
                 "user_description": config.label_by.user_description,
                 "full_prompt": config.label_by.full_prompt,
                 "style_categories": ["特写图", "环境图", "拼接图", "信息图"]  # Fixed categories

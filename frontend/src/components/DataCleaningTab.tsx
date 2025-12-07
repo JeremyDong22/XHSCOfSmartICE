@@ -1,7 +1,7 @@
 // Data Cleaning Tab - Main container for the "Data Laundry" feature
-// Version: 3.0 - Sync left panel height with right WashingMachine height
-// Changes: Left panel height matches right panel, scrolls when content overflows
-// Previous: handleCancelTask now calls backend API to cancel running tasks
+// Version: 3.1 - Added includeLikes field mapping for AI cleaning
+// Changes: Map includeLikes field in convertBackendTask and handleTaskSubmit
+// Previous: Sync left panel height with right WashingMachine height
 
 'use client';
 
@@ -68,6 +68,7 @@ export default function DataCleaningTab() {
           enabled: backendTask.config.labelBy.enabled,
           imageTarget: backendTask.config.labelBy.imageTarget as 'cover_image' | 'images' | null,
           textTarget: backendTask.config.labelBy.textTarget as 'title' | 'content' | null,
+          includeLikes: backendTask.config.labelBy.includeLikes ?? false,
           userDescription: backendTask.config.labelBy.userDescription,
           fullPrompt: backendTask.config.labelBy.fullPrompt,
         },
@@ -261,6 +262,7 @@ export default function DataCleaningTab() {
         enabled: task.config.labelBy.enabled,
         imageTarget: task.config.labelBy.imageTarget,
         textTarget: task.config.labelBy.textTarget,
+        includeLikes: task.config.labelBy.includeLikes,
         userDescription: task.config.labelBy.userDescription,
         fullPrompt: task.config.labelBy.fullPrompt,
       },
@@ -276,6 +278,7 @@ export default function DataCleaningTab() {
       label_by: task.config.labelBy.enabled ? {
         image_target: task.config.labelBy.imageTarget,
         text_target: task.config.labelBy.textTarget,
+        include_likes: task.config.labelBy.includeLikes,
         user_description: task.config.labelBy.userDescription,
         full_prompt: task.config.labelBy.fullPrompt,
       } : null,
