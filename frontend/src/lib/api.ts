@@ -1,7 +1,7 @@
 // API client for XHS Multi-Account Scraper
-// Version: 2.3 - Added includeLikes support for AI cleaning
-// Changes: Added include_likes field to LabelByRequest and LabelByConfigStored
-// Previous: Added cancel cleaning task API
+// Version: 2.4 - Added local image caching support
+// Changes: Added local_cover_image field and getImageUrl helper function
+// Previous: Added includeLikes support for AI cleaning
 
 // Dynamically determine API base URL based on current hostname
 const getApiBase = () => {
@@ -11,6 +11,17 @@ const getApiBase = () => {
 };
 
 const API_BASE = getApiBase();
+
+// Helper function to get image URL with local cache fallback
+export function getImageUrl(post: XHSPost): string {
+  // Prefer local cached image if available
+  if (post.local_cover_image) {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    return `http://${hostname}:8000/api/images/${post.local_cover_image}`;
+  }
+  // Fallback to CDN URL (may expire after 1-2 days)
+  return post.cover_image || '';
+}
 
 // XHS Post data structure from scrape results
 export interface XHSPost {
@@ -23,6 +34,7 @@ export interface XHSPost {
   author_profile_url: string;
   likes: number;
   cover_image: string;
+  local_cover_image?: string;  // Local cached image filename (to avoid CDN expiration)
   publish_date: string;
   card_width: number;
   card_height: number;

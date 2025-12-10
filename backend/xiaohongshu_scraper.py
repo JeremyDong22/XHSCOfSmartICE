@@ -1,7 +1,7 @@
 # Xiaohongshu scraper module
-# Version: 2.5 - Fixed parallel scraping support with proper timeouts
-# Changes: Changed networkidle to load state, added timeouts to prevent hanging
-# Previous: Added database integration for post storage and deduplication
+# Version: 2.6 - Added image downloading after scraping
+# Changes: Integrated image_downloader to cache cover images locally after scraping
+# Previous: Fixed parallel scraping support with proper timeouts
 
 import asyncio
 import json
@@ -17,6 +17,9 @@ from data_models import XHSPost, ScrapeFilter, ScrapeTask
 # Database imports
 from database import get_database
 from database.repositories import PostRepository, AccountRepository, StatsRepository
+
+# Image downloader
+from image_downloader import download_post_images, get_local_image_filename
 
 # Paths relative to project root (parent of backend/)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -687,6 +690,28 @@ async def run_scrape_task(
     try:
         await scraper.init_page()
         posts = await scraper.search_and_scrape(keyword, filters, log_collecting_callback, cancel_check)
+
+        # Download cover images after scraping (if not cancelled)
+        if posts and not (cancel_check and cancel_check()):
+            await log_collecting_callback(f"Downloading {len(posts)} cover images...")
+            try:
+                # Download images with progress reporting
+                image_results = await download_post_images(
+                    posts=posts,
+                    progress_callback=log_collecting_callback,
+                    max_concurrent=10
+                )
+
+                # Update posts with local image paths
+                for post in posts:
+                    local_path = image_results.get(post.note_id)
+                    if local_path:
+                        # Store just the filename (not full path) for portability
+                        post.local_cover_image = get_local_image_filename(post.note_id)
+
+            except Exception as e:
+                await log_collecting_callback(f"Warning: Image download failed - {str(e)}")
+                # Continue without images - not critical
 
         # Save posts to database
         if posts:

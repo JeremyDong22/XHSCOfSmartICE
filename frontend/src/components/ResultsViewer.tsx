@@ -1,12 +1,12 @@
 // Results viewer component for displaying scrape output files
-// Version: 3.3 - UI localization to Chinese
-// Changes: All labels, placeholders, buttons, and messages translated to Chinese
-// Previous: Fixed date sorting for YYYYMMDD_HHMMSS filename format
+// Version: 3.4 - Added local image caching support
+// Changes: Use getImageUrl helper to prefer local cached images over CDN URLs
+// Previous: UI localization to Chinese
 
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { ResultFile, getScrapeResults, getScrapeResult, deleteScrapeResult, ScrapeResultData, XHSPost } from '@/lib/api';
+import { ResultFile, getScrapeResults, getScrapeResult, deleteScrapeResult, ScrapeResultData, XHSPost, getImageUrl } from '@/lib/api';
 
 interface ResultsViewerProps {
   refreshTrigger: number;
@@ -47,7 +47,7 @@ function PostCard({ post }: { post: XHSPost }) {
               <div className="absolute inset-0 animate-pulse bg-stone-700" />
             )}
             <img
-              src={post.cover_image}
+              src={getImageUrl(post)}
               alt={post.title || 'Post cover'}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
                 imageLoaded ? 'opacity-100' : 'opacity-0'

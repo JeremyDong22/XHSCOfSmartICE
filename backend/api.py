@@ -1,7 +1,7 @@
 # FastAPI backend for XHS Multi-Account Scraper
-# Version: 4.0 - Add 'partial' to Pydantic status types
-# Changes: Added 'partial' to CleaningTaskStatus and CleaningTaskFull status Literal types
-# Previous: v3.9 - Save partial results on manual cancellation
+# Version: 4.1 - Added static image serving and cascade delete for images
+# Changes: Added /api/images static file mount, cascade delete images when deleting JSON results
+# Previous: Added 'partial' to CleaningTaskStatus and CleaningTaskFull status Literal types
 
 import os
 import json
@@ -14,6 +14,7 @@ from typing import List, Optional, Dict, Any, Literal
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
 
 # Load environment variables from .env file
 load_dotenv()
@@ -42,6 +43,7 @@ from data_cleaning_service import (
     RateLimitError,
     CLEANED_OUTPUT_DIR
 )
+from image_downloader import delete_images_by_note_ids, OUTPUT_IMAGES_DIR
 
 # Database imports
 from database import init_database, close_database, get_database
@@ -397,6 +399,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static file serving for downloaded images
+# Ensure output_images directory exists before mounting
+os.makedirs(OUTPUT_IMAGES_DIR, exist_ok=True)
+app.mount("/api/images", StaticFiles(directory=OUTPUT_IMAGES_DIR), name="images")
 
 
 # Request timing middleware for debugging slow requests
@@ -879,7 +886,10 @@ async def get_scrape_result(filename: str):
 
 @app.delete("/api/scrape/results/{filename}")
 async def delete_scrape_result(filename: str):
-    """Delete a scrape result file"""
+    """
+    Delete a scrape result file and its associated resources (log file + cover images).
+    Cascade delete: JSON -> .log file -> cover images for all note_ids in the JSON.
+    """
     filepath = os.path.join(OUTPUT_DIR, filename)
 
     if not os.path.exists(filepath):
@@ -890,9 +900,42 @@ async def delete_scrape_result(filename: str):
         raise HTTPException(status_code=400, detail="Can only delete .json files")
 
     try:
+        # Step 1: Read JSON to get note_ids for image deletion
+        note_ids = []
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                posts = data.get('posts', [])
+                note_ids = [post.get('note_id') for post in posts if post.get('note_id')]
+        except Exception as e:
+            logger.warning(f"Failed to read note_ids from {filename} for image deletion: {e}")
+            # Continue with file deletion even if we can't read note_ids
+
+        # Step 2: Delete the JSON file
         os.remove(filepath)
-        return {"success": True, "message": f"Deleted {filename}"}
+        logger.info(f"Deleted JSON file: {filename}")
+
+        # Step 3: Delete companion .log file if exists
+        log_filename = filename.replace('.json', '.log')
+        log_filepath = os.path.join(OUTPUT_DIR, log_filename)
+        if os.path.exists(log_filepath):
+            os.remove(log_filepath)
+            logger.info(f"Deleted log file: {log_filename}")
+
+        # Step 4: Delete associated cover images
+        deleted_images = 0
+        if note_ids:
+            deleted_images = delete_images_by_note_ids(note_ids)
+            logger.info(f"Deleted {deleted_images} cover images for {filename}")
+
+        return {
+            "success": True,
+            "message": f"Deleted {filename}",
+            "deleted_log": os.path.exists(log_filepath),
+            "deleted_images": deleted_images
+        }
     except Exception as e:
+        logger.error(f"Failed to delete {filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
 
 

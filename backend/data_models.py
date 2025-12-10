@@ -1,7 +1,7 @@
 # Data models for XHS Scraper
-# Version: 1.3 - Added skip_videos filter option
-# Changes: Added skip_videos to ScrapeFilter, updated passes() to exclude video posts when enabled
-# Previous: Added tokenized_url field (with xsec_token), is_video field for content type detection
+# Version: 1.4 - Added local_cover_image field for local image caching
+# Changes: Added local_cover_image field to XHSPost to store local image path
+# Previous: Added skip_videos to ScrapeFilter, updated passes() to exclude video posts when enabled
 
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional
@@ -21,6 +21,7 @@ class XHSPost:
     author_profile_url: str = ""
     likes: int = 0
     cover_image: str = ""
+    local_cover_image: str = ""  # Local path to downloaded cover image (to avoid CDN expiration)
     publish_date: str = ""
     card_width: int = 0
     card_height: int = 0

@@ -1,12 +1,12 @@
 // Cleaned Results Viewer - Displays processed/cleaned JSON files with metadata
-// Version: 3.5 - Fixed filter dropdowns always show all options
-// Changes: Label and style filters now always display all options with counts (even if 0)
-// Previous: v3.4 - Label tooltip shows on hover, pins on click, dismisses on click outside
+// Version: 3.6 - Added local image caching support
+// Changes: Use getImageUrl helper to prefer local cached images over CDN URLs
+// Previous: Fixed filter dropdowns always show all options
 
 'use client';
 
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { XHSPost, deleteCleanedResult } from '@/lib/api';
+import { XHSPost, deleteCleanedResult, getImageUrl } from '@/lib/api';
 
 // Types for cleaned data structure
 export interface CleaningMetadata {
@@ -194,7 +194,7 @@ function LabeledPostCard({ post }: { post: LabeledPost }) {
               <div className="absolute inset-0 animate-pulse bg-stone-700" />
             )}
             <img
-              src={post.cover_image}
+              src={getImageUrl(post)}
               alt={post.title || 'Post cover'}
               className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 ${
                 imageLoaded ? 'opacity-100' : 'opacity-0'
