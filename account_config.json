@@ -2,26 +2,39 @@
   "accounts": {
     "3": {
       "active": true,
-      "last_used": "2025-12-06T04:10:30.999813"
+      "last_used": "2025-12-08T10:39:45.873094",
+      "nickname": "爬虫3号"
     },
     "5": {
       "active": true,
-      "last_used": "2025-12-06T15:32:40.262684"
+      "last_used": "2025-12-08T02:51:20.624328",
+      "nickname": "爬虫5号"
     },
     "6": {
-      "active": true
+      "active": true,
+      "last_used": "2025-12-07T14:24:15.435820",
+      "nickname": "爬虫6号"
     },
     "7": {
       "active": true,
-      "last_used": "2025-12-06T15:32:21.623020"
+      "last_used": "2025-12-07T14:24:18.799604",
+      "nickname": "爬虫7号"
     },
     "8": {
       "active": true,
-      "last_used": "2025-12-06T15:09:05.154230"
+      "last_used": "2025-12-07T14:24:23.213674",
+      "nickname": "爬虫8号"
     },
     "9": {
       "active": true,
-      "last_used": "2025-12-06T15:36:01.687797"
+      "last_used": "2025-12-07T14:24:27.544184",
+      "nickname": "爬虫9号"
+    },
+    "10": {
+      "active": true,
+      "nickname": "雪姐的小红书",
+      "created_at": "2025-12-07T00:33:08.630780",
+      "last_used": "2025-12-07T14:24:29.438990"
     }
   }
 }
