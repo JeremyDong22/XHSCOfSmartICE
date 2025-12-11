@@ -40,7 +40,15 @@ user_data/*/GraphiteDawnCache/
 user_data/*/GrShaderCache/
 user_data/*/*.pma
 
+# Environment variables (secrets)
+backend/.env
+
+# Local state files
+cleaning_tasks.json
+
 # Keep these files (do NOT ignore):
 # - user_data/ session files (Cookies, Local Storage, Sessions)
 # - .mcp.json (MCP server config)
 # - account_config.json (account data)
+# - output/ (scraped data)
+# - output_images/ (cached cover images)

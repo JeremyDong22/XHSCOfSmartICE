@@ -2,39 +2,45 @@
   "accounts": {
     "3": {
       "active": true,
-      "last_used": "2025-12-08T10:39:45.873094",
-      "nickname": "爬虫3号"
+      "last_used": "2025-12-11T21:09:16.515242",
+      "nickname": "爬虫3号 Mac"
     },
     "5": {
       "active": true,
       "last_used": "2025-12-08T02:51:20.624328",
-      "nickname": "爬虫5号"
+      "nickname": "爬虫5号 Mac"
     },
     "6": {
       "active": true,
       "last_used": "2025-12-07T14:24:15.435820",
-      "nickname": "爬虫6号"
+      "nickname": "爬虫6号 Mac"
     },
     "7": {
       "active": true,
       "last_used": "2025-12-07T14:24:18.799604",
-      "nickname": "爬虫7号"
+      "nickname": "爬虫7号 Mac"
     },
     "8": {
       "active": true,
       "last_used": "2025-12-07T14:24:23.213674",
-      "nickname": "爬虫8号"
+      "nickname": "爬虫8号 Mac"
     },
     "9": {
       "active": true,
       "last_used": "2025-12-07T14:24:27.544184",
-      "nickname": "爬虫9号"
+      "nickname": "爬虫9号 Mac"
     },
     "10": {
       "active": true,
-      "nickname": "雪姐的小红书",
+      "nickname": "雪姐的小红书 Mac",
       "created_at": "2025-12-07T00:33:08.630780",
-      "last_used": "2025-12-07T14:24:29.438990"
+      "last_used": "2025-12-11T21:09:27.424523"
+    },
+    "11": {
+      "active": true,
+      "nickname": "Jeremy Linux",
+      "created_at": "2025-12-11T21:10:02.344415",
+      "last_used": "2025-12-11T21:40:33.867880"
     }
   }
 }
