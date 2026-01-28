@@ -83,3 +83,7 @@ cd frontend && npm install
 
 **Environment Variables (backend/.env):**
 - `GEMINI_API_KEY` - Required for data cleaning features
+
+**Development Notes:**
+- After modifying backend Python files, manually restart the backend server. The `--reload` flag may hang on "Waiting for background tasks to complete" due to active SSE connections. Kill the process (`kill -9 <pid>`) and restart.
+- On backend startup, orphaned Chrome processes from previous sessions are automatically cleaned up.
