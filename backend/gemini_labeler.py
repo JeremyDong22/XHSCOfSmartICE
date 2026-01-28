@@ -1,7 +1,11 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 5.3 - Use system proxy with retry logic for stability
-# Changes: Keep system proxy (required by Cloudflare), add retry on connection errors
-# Previous: v5.0 - Add VisionStruct detailed image-to-JSON analysis
+# Version: 5.8 - Switch VisionStruct to Gemini 2.5 Flash for cost savings
+# Changes:
+#   - Switch VISION_STRUCT_MODEL from Gemini 3 Flash to Gemini 2.5 Flash (~25% cost savings)
+#   - Add cost tracking fields to LabelingResult, VisionStructResult, BatchResult
+#   - Capture usage.cost from OpenRouter API responses
+#   - VisionStruct uses Gemini 2.5 Flash (balance), labeling uses 2.0 Flash (cheapest)
+# Previous: v5.6 - Optimized VisionStruct prompt with 6-phase analysis framework
 #
 # Features:
 # - Concurrent batch processing with configurable parallelism (default: 5)
@@ -71,21 +75,52 @@ STYLE_CATEGORIES = [
 ]
 
 # VisionStruct prompt for detailed image analysis (vision-to-JSON)
+# Extended with food_analysis section for ingredient/presentation analysis
 VISION_STRUCT_PROMPT = """You are VisionStruct, an advanced Computer Vision & Data Serialization Engine. Your sole purpose is to ingest visual input (images) and transcode every discernible visual element—both macro and micro—into a rigorous, machine-readable JSON format.
 
 CORE DIRECTIVE
 
 Do not summarize. Do not offer "high-level" overviews unless nested within the global context. You must capture 100% of the visual data available in the image. If a detail exists in pixels, it must exist in your JSON output. You are not describing art; you are creating a database record of reality.
 
-ANALYSIS PROTOCOL
+ANALYSIS PROTOCOL (6-PHASE FRAMEWORK)
 
-Before generating the final JSON, perform a silent "Visual Sweep" (do not output this):
+Before generating the final JSON, perform a silent analysis (do not output this):
 
-Macro Sweep: Identify the scene type, global lighting, atmosphere, and primary subjects.
+PHASE 1 - MACRO IDENTIFICATION:
+- Identify the dish, cuisine type, and meal category
+- List all visible ingredients and their cooking states
+- Determine cooking methods used
 
-Micro Sweep: Scan for textures, imperfections, background clutter, reflections, shadow gradients, and text (OCR).
+PHASE 2 - MICRO-TEXTURE ANALYSIS:
+For each major element, analyze:
+- Surface texture (glossy, matte, crispy, smooth, rough, grainy)
+- Moisture indicators (dry, moist, glistening, dripping)
+- Temperature cues (steam, condensation, melting, frosting)
+- Light interaction (specular highlights, subsurface scattering, translucency)
 
-Relationship Sweep: Map the spatial and semantic connections between objects (e.g., "holding," "obscuring," "next to").
+PHASE 3 - COLOR FORENSICS:
+- Extract dominant colors as hex codes
+- Note color gradients (caramelization, browning, char marks)
+- Assess color temperature and saturation
+
+PHASE 4 - DYNAMIC STATE INDICATORS:
+Look for evidence of:
+- Steam/vapor (location, intensity, direction)
+- Flowing/dripping elements (sauces, cheese, oils)
+- Melting states (ice cream, butter, cheese)
+- Bubbling/sizzling indicators
+
+PHASE 5 - COMPOSITION ANALYSIS:
+- Plating style and arrangement
+- Focal point and visual hierarchy
+- Use of negative space
+- Height and depth variation
+
+PHASE 6 - LIGHTING TECHNICAL DETAILS:
+- Light direction (use clock face: "2 o'clock position")
+- Light quality (hard, soft, diffused)
+- Shadow characteristics
+- Highlight placement
 
 OUTPUT FORMAT (STRICT)
 
@@ -104,9 +139,12 @@ You must return ONLY a single valid JSON object. Do not include markdown fencing
     "weather_atmosphere": "Foggy/Clear/Rainy/Chaotic/Serene",
     "lighting": {
       "source": "Sunlight/Artificial/Mixed",
-      "direction": "Top-down/Backlit/etc",
-      "quality": "Hard/Soft/Diffused",
-      "color_temp": "Warm/Cool/Neutral"
+      "direction": "Use clock face position: 10 o'clock, 2 o'clock, directly above, etc.",
+      "quality": "Hard (sharp shadows)/Soft (diffused)/Dramatic (high contrast)",
+      "color_temp": "Warm (2700-3500K)/Neutral (4000-5000K)/Cool (5500K+)",
+      "color_temp_kelvin": "Estimated Kelvin value if discernible",
+      "shadow_characteristics": "Harsh/Soft/Minimal/None - describe shadow edges and density",
+      "highlight_locations": ["List where light catches and creates bright spots"]
     }
   },
 
@@ -126,14 +164,14 @@ You must return ONLY a single valid JSON object. Do not include markdown fencing
     {
       "id": "obj_001",
       "label": "Primary Object Name",
-      "category": "Person/Vehicle/Furniture/etc",
+      "category": "Person/Vehicle/Furniture/Food/Dishware/Decoration/etc",
       "location": "Center/Top-Left/etc",
       "prominence": "Foreground/Background",
       "visual_attributes": {
         "color": "Detailed color description",
         "texture": "Rough/Smooth/Metallic/Fabric-type",
-        "material": "Wood/Plastic/Skin/etc",
-        "state": "Damaged/New/Wet/Dirty",
+        "material": "Wood/Plastic/Skin/Ceramic/Glass/etc",
+        "state": "Damaged/New/Wet/Dirty/Hot/Cold/Fresh",
         "dimensions_relative": "Large relative to frame"
       },
       "micro_details": [
@@ -146,6 +184,141 @@ You must return ONLY a single valid JSON object. Do not include markdown fencing
       "text_content": null
     }
   ],
+
+  "food_analysis": {
+    "dish_category": "Describe the type of dish (e.g., soup, stir-fry, dessert, beverage, hot pot, BBQ, noodles)",
+    "cuisine_style": "Describe the cuisine style or origin if identifiable",
+    "cooking_methods": ["List all cooking methods visible or inferred: grilled, fried, steamed, baked, raw, braised, stir-fried, deep-fried, poached, smoked, etc."],
+
+    "ingredients": [
+      {
+        "id": "ing_001",
+        "name": "Ingredient name in both Chinese and English if possible",
+        "role": "Describe the role: main ingredient, side ingredient, garnish, sauce, topping, etc.",
+        "state": "Describe the state: raw, cooked, melted, crispy, flowing, steaming, caramelized, charred, etc.",
+        "visual_cues": ["List visual details that indicate freshness, doneness, or appeal"],
+        "quantity": "Specific count or amount if discernible (e.g., 3 shrimp, 5 slices, a handful)",
+        "size": "Describe the size: large/medium/small, or estimated dimensions",
+        "shape": "Describe the shape: round, rectangular, irregular, curled, flat, etc.",
+        "cut_style": "Describe how it's cut or prepared: sliced, diced, whole, shredded, minced, julienned, etc.",
+        "surface_texture": {
+          "glossiness": "Describe shine level: glossy/matte/wet/oily",
+          "roughness": "Describe surface: smooth/rough/bumpy/crispy-textured",
+          "moisture": "Describe wetness: dry/moist/wet/dripping",
+          "light_interaction": "How light interacts with surface: specular highlights (bright reflections), subsurface scattering (light penetrating translucent materials like meat/fruit), translucency, diffuse reflection"
+        },
+        "edge_condition": "Describe edges: crispy edges, charred edges, clean cut, torn, frayed, caramelized rim, etc.",
+        "temperature_cues": "Visual indicators of temperature: steam rising, condensation, melting, frozen crystals, etc.",
+        "color_gradient": "Describe color variations within the ingredient: browning on edges, pink center, gradient from cooked to raw, etc.",
+        "visual_prominence": "0-1 score indicating how visually prominent this ingredient is in the frame (1.0 = dominant focal point, 0.1 = barely visible)",
+        "position": {
+          "absolute": "Where in the dish: center, left, right, top, bottom, scattered",
+          "layer": "Which layer: bottom layer, middle layer, top layer, floating, submerged",
+          "relative_to_others": ["Describe position relative to other ingredients: on top of X, next to Y, underneath Z, surrounded by W"]
+        }
+      }
+    ],
+
+    "sauce_analysis": {
+      "present": true,
+      "type": "Describe the sauce type: curry, gravy, broth, dressing, glaze, etc.",
+      "color": "Describe sauce color with detail",
+      "consistency": "Describe thickness: watery, thin, medium, thick, paste-like, gelatinous",
+      "coverage": "Describe how sauce covers the dish: pooled at bottom, drizzled on top, coating everything, partial coverage",
+      "surface_details": "Describe sauce surface: oil droplets floating, bubbles, skin forming, herbs visible, etc.",
+      "flow_state": "Describe if sauce appears to be flowing, dripping, or static"
+    },
+
+    "presentation": {
+      "plating_style": "Describe how the food is arranged: stacked, scattered, layered, circular, radial, linear, etc.",
+      "portion_impression": "Describe the overall portion size impression",
+      "height_dimension": "Describe the vertical dimension: tall/flat/layered, estimated height",
+      "density": "Describe how packed or sparse the arrangement is",
+      "symmetry": "Describe symmetry: symmetrical, asymmetrical, random, deliberate chaos",
+      "focal_point": "What element draws the eye first",
+      "color_harmony": "Describe how colors work together in the dish",
+      "negative_space": "Describe use of empty space on the plate/bowl",
+      "overflow_state": "Describe if food overflows the vessel or is contained within",
+      "layering_description": "Describe the layer structure from bottom to top"
+    },
+
+    "dishware": {
+      "type": "Describe the vessel: bowl, plate, cup, pot, wooden board, stone slab, banana leaf, etc.",
+      "material": "Describe the material: ceramic, porcelain, metal, wood, glass, stone, bamboo, etc.",
+      "style": "Describe the aesthetic style: traditional, modern, rustic, minimalist, industrial, vintage, etc.",
+      "color": "Describe the dishware color and any patterns",
+      "shape": "Describe the shape: round, square, oval, irregular, deep, shallow",
+      "rim_style": "Describe the rim: wide rim, no rim, curved lip, straight edge",
+      "condition": "New/Worn/Vintage/Chipped/etc.",
+      "size_relative_to_food": "How the dishware size relates to the food portion: oversized plate, snug fit, overflowing",
+      "fill_level": "How full is the vessel: 1/4, 1/2, 3/4, full, overflowing"
+    },
+
+    "decoration_elements": [
+      {
+        "element": "Name of decorative element (herbs, citrus, seeds, sauce drizzle, edible flowers, etc.)",
+        "quantity": "How many or how much",
+        "placement": "Describe where and how it's placed: scattered on top, single piece on side, ring around edge",
+        "state": "Fresh/wilted/fried/dried/frozen",
+        "purpose": "Describe its visual or flavor purpose: color contrast, freshness indicator, texture addition"
+      }
+    ],
+
+    "appetite_triggers": [
+      "List ALL visual elements that trigger appetite - be exhaustive:",
+      "- Steam/vapor: describe density, direction, visibility",
+      "- Glossy surfaces: where exactly, what's causing the shine",
+      "- Melting: what's melting, how far along",
+      "- Dripping/flowing: what liquid, from where to where",
+      "- Bubbling/sizzling: location, intensity",
+      "- Char marks/grill lines: pattern, color",
+      "- Crispy textures: visible crunch indicators",
+      "- Cheese pull/stretch: if applicable",
+      "- Juice release: from cut meat, fruit, etc.",
+      "- Caramelization: where, what color",
+      "- Fresh condensation/water droplets: on what surfaces"
+    ],
+
+    "texture_contrast": "Describe ALL contrasting textures visible: crispy vs soft, smooth vs chunky, liquid vs solid, etc.",
+
+    "aroma_indicators": "Describe visual cues that suggest aroma: steam carrying spices, visible herb oils, toasted elements, etc.",
+
+    "dynamic_elements": {
+      "steam_vapor": {
+        "present": true,
+        "location": "Where steam is rising from",
+        "density": "Wispy/Light/Medium/Dense/Billowing",
+        "direction": "Rising straight up/Drifting left/Swirling",
+        "visibility": "Barely visible/Clearly visible/Prominent"
+      },
+      "flowing_dripping": {
+        "present": true,
+        "substance": "What is flowing: sauce, cheese, yolk, juice, etc.",
+        "source": "Where it's flowing from",
+        "destination": "Where it's flowing to",
+        "viscosity": "Thin and fast/Slow and thick/Stretchy"
+      },
+      "melting": {
+        "present": true,
+        "element": "What is melting: cheese, butter, ice cream, etc.",
+        "stage": "Just starting/Halfway/Almost fully melted",
+        "pooling": "Is it pooling? Where?"
+      },
+      "bubbling_sizzling": {
+        "present": true,
+        "location": "Where bubbles/sizzle is visible",
+        "intensity": "Gentle/Active/Vigorous",
+        "bubble_size": "Tiny/Small/Large"
+      }
+    },
+
+    "quality_metrics": {
+      "visual_appeal_score": "1-10 score for overall visual appeal and appetite-triggering power",
+      "professional_quality": "true/false - Does this look professionally photographed?",
+      "style_tags": ["List style descriptors: rustic, modern, elegant, comfort food, gourmet, homestyle, street food, fine dining, etc."],
+      "instagram_worthiness": "1-10 score for social media appeal"
+    }
+  },
 
   "text_ocr": {
     "present": true,
@@ -162,7 +335,9 @@ You must return ONLY a single valid JSON object. Do not include markdown fencing
   "semantic_relationships": [
     "Object A is supporting Object B",
     "Object C is casting a shadow on Object A",
-    "Object D is visually similar to Object E"
+    "Object D is visually similar to Object E",
+    "Ingredient X is layered on top of Ingredient Y",
+    "Sauce is pooling around the main dish"
   ]
 }
 
@@ -172,7 +347,15 @@ Granularity: Never say "a crowd of people." Instead, list the crowd as a group o
 
 Micro-Details: You must note scratches, dust, weather wear, specific fabric folds, and subtle lighting gradients.
 
-Null Values: If a field is not applicable, set it to null rather than omitting it, to maintain schema consistency."""
+Food-Specific Details: For food images, you MUST populate the food_analysis section with exhaustive detail:
+- Every visible ingredient must be listed with visual_prominence score
+- Every appetite-triggering detail (steam, gloss, drip, char, melt) must be captured in dynamic_elements
+- Light interaction (specular highlights, subsurface scattering) must be described for glossy/translucent foods
+- Provide quality_metrics with visual_appeal_score (1-10)
+
+Null Values: If a field is not applicable (e.g., food_analysis for non-food images), set it to null rather than omitting it, to maintain schema consistency.
+
+Objectivity: Be measurable and specific with visual data points. Avoid subjective language - describe what you see, not how it makes you feel."""
 
 
 @dataclass
@@ -183,6 +366,7 @@ class LabelingResult:
     style_label: str  # One of: "人物图", "特写图", "环境图", "拼接图", "信息图"
     reasoning: str  # Explanation in Chinese
     error: Optional[str] = None
+    cost: float = 0.0  # API cost in USD from OpenRouter
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -194,6 +378,7 @@ class VisionStructResult:
     note_id: str
     vision_struct: Optional[Dict[str, Any]] = None  # Full VisionStruct JSON
     error: Optional[str] = None
+    cost: float = 0.0  # API cost in USD from OpenRouter
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -212,6 +397,7 @@ class BatchResult:
     is_partial: bool  # True if interrupted by 429/other fatal error
     interrupted_reason: Optional[str] = None  # Reason for interruption if partial
     interrupted_at_index: Optional[int] = None  # Index where processing stopped
+    total_cost: float = 0.0  # Total API cost in USD from OpenRouter
 
     def to_dict(self) -> dict:
         return {
@@ -220,7 +406,8 @@ class BatchResult:
             "error_count": self.error_count,
             "is_partial": self.is_partial,
             "interrupted_reason": self.interrupted_reason,
-            "interrupted_at_index": self.interrupted_at_index
+            "interrupted_at_index": self.interrupted_at_index,
+            "total_cost": self.total_cost
         }
 
 
@@ -231,11 +418,16 @@ class GeminiLabeler:
     This module provides flexible prompt engineering for categorizing XHS posts
     based on images (cover or all), text (title or content), or combinations.
     Uses OpenRouter API to access Google's Gemini 2.0 Flash model.
+
+    Model selection:
+    - Labeling (text/image classification): Gemini 2.0 Flash (cheaper, $0.0005/image)
+    - VisionStruct (detailed vision-to-JSON): Gemini 3 Flash (better reasoning, $0.0026/image)
     """
 
     # OpenRouter API configuration
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-    DEFAULT_MODEL = "google/gemini-2.0-flash-001"
+    DEFAULT_MODEL = "google/gemini-2.0-flash-001"  # For labeling (cheaper)
+    VISION_STRUCT_MODEL = "google/gemini-2.5-flash-preview"  # For VisionStruct (balance of cost/quality)
 
     def __init__(self, api_key: Optional[str] = None, model_name: str = None):
         """
@@ -531,6 +723,11 @@ Output your analysis in this exact JSON format:
             # Parse the response
             response_data = response.json()
 
+            # Extract cost from OpenRouter response (in USD)
+            api_cost = 0.0
+            if 'usage' in response_data:
+                api_cost = response_data['usage'].get('cost', 0.0) or 0.0
+
             # Extract the message content
             if 'choices' not in response_data or len(response_data['choices']) == 0:
                 raise ValueError("No response choices returned from API")
@@ -559,7 +756,8 @@ Output your analysis in this exact JSON format:
                 note_id=note_id,
                 label=label,
                 style_label=style_label,
-                reasoning=reasoning
+                reasoning=reasoning,
+                cost=api_cost
             )
 
         except RateLimitError:
@@ -630,9 +828,9 @@ Output your analysis in this exact JSON format:
                 {"type": "image_url", "image_url": {"url": base64_url}}
             ]
 
-            # Build the request payload - use higher max_tokens for detailed output
+            # Build the request payload - use VISION_STRUCT_MODEL (Gemini 2.5 Flash) for balance of cost/quality
             payload = {
-                "model": self.model_name,
+                "model": self.VISION_STRUCT_MODEL,
                 "messages": [
                     {
                         "role": "user",
@@ -683,6 +881,11 @@ Output your analysis in this exact JSON format:
             # Parse the response
             response_data = response.json()
 
+            # Extract cost from OpenRouter response (in USD)
+            api_cost = 0.0
+            if 'usage' in response_data:
+                api_cost = response_data['usage'].get('cost', 0.0) or 0.0
+
             # Extract the message content
             if 'choices' not in response_data or len(response_data['choices']) == 0:
                 raise ValueError("No response choices returned from API")
@@ -696,7 +899,8 @@ Output your analysis in this exact JSON format:
             return VisionStructResult(
                 note_id=note_id,
                 vision_struct=vision_struct_json,
-                error=None
+                error=None,
+                cost=api_cost
             )
 
         except RateLimitError:
@@ -965,8 +1169,10 @@ Output your analysis in this exact JSON format:
         final_results = [r for r in results if r is not None]
         success_count = sum(1 for r in final_results if r.label and not r.error)
         error_count = sum(1 for r in final_results if r.error)
+        # Calculate total cost from all results
+        total_cost = sum(r.cost for r in final_results if r is not None)
 
-        logger.info(f"Batch complete: {success_count}/{total} successful, {error_count} errors, partial={rate_limit_hit}")
+        logger.info(f"Batch complete: {success_count}/{total} successful, {error_count} errors, partial={rate_limit_hit}, cost=${total_cost:.4f}")
 
         # Clear real-time tracking on completion
         with self._results_lock:
@@ -986,7 +1192,8 @@ Output your analysis in this exact JSON format:
             error_count=error_count,
             is_partial=rate_limit_hit,
             interrupted_reason=interrupted_reason,
-            interrupted_at_index=interrupted_index
+            interrupted_at_index=interrupted_index,
+            total_cost=total_cost
         )
 
 
