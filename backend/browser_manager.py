@@ -1,7 +1,7 @@
 # Browser manager for XHS multi-account system
-# Version: 1.5 - Reduced browser close timeout for faster hot-reload
-# Changes: Browser stop() now uses 2s timeout instead of 5s for faster shutdown during hot-reload
-# Previous: Fixed browser duration tracking bug where 0-second durations were skipped
+# Version: 1.6 - Disable SwiftShader to fix laggy browser scrolling
+# Changes: Added ignore_default_args=['--enable-unsafe-swiftshader'] to use GPU acceleration instead of CPU software rendering
+# Previous: Reduced browser close timeout for faster hot-reload
 
 import asyncio
 import subprocess
@@ -86,7 +86,9 @@ class BrowserManager:
                 args=[
                     '--disable-blink-features=AutomationControlled',
                     f'--window-position={(position_index % 4) * 350},{(position_index // 4) * 450}'
-                ]
+                ],
+                # Disable SwiftShader software rendering to use GPU acceleration (fixes laggy scrolling)
+                ignore_default_args=['--enable-unsafe-swiftshader']
             )
 
             # Open XHS homepage
@@ -127,7 +129,9 @@ class BrowserManager:
                 headless=False,
                 channel='chrome',
                 viewport={'width': 1280, 'height': 800},
-                args=['--disable-blink-features=AutomationControlled']
+                args=['--disable-blink-features=AutomationControlled'],
+                # Disable SwiftShader software rendering to use GPU acceleration
+                ignore_default_args=['--enable-unsafe-swiftshader']
             )
 
             # Create label page
