@@ -82,8 +82,18 @@ cd frontend && npm install
 - Logged in = no QR code elements present
 
 **Environment Variables (backend/.env):**
-- `GEMINI_API_KEY` - Required for data cleaning features
+- `OPEN_ROUTER_API_KEY` - Required for data cleaning features (OpenRouter API)
+
+**OpenRouter Gemini Model Pricing (as of 2026-01):**
+| Model | Input ($/M tokens) | Output ($/M tokens) | Notes |
+|-------|-------------------|---------------------|-------|
+| `google/gemini-2.0-flash-001` | $0.10 | $0.40 | **Currently used** - cheapest, good for bulk |
+| `google/gemini-2.5-flash` | $0.30 | $2.50 | 3x/6x more expensive |
+| `google/gemini-3-flash-preview` | $0.50 | $3.00 | 5x/7.5x, near-Pro reasoning, 3x faster than 2.5 Pro |
+
+To switch models, change `DEFAULT_MODEL` in `gemini_labeler.py`.
 
 **Development Notes:**
 - After modifying backend Python files, manually restart the backend server. The `--reload` flag may hang on "Waiting for background tasks to complete" due to active SSE connections. Kill the process (`kill -9 <pid>`) and restart.
 - On backend startup, orphaned Chrome processes from previous sessions are automatically cleaned up.
+- When using curl to test backend endpoints, always add `-m 3` (3 second timeout) to avoid hanging.

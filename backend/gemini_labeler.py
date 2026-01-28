@@ -1,12 +1,13 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 4.3 - Real-time result tracking for cancellation support
-# Changes: Track results in real-time during batch processing, add get_current_results() method
-# Previous: v4.2 - Graceful error handling with partial results
+# Version: 5.3 - Use system proxy with retry logic for stability
+# Changes: Keep system proxy (required by Cloudflare), add retry on connection errors
+# Previous: v5.0 - Add VisionStruct detailed image-to-JSON analysis
 #
 # Features:
 # - Concurrent batch processing with configurable parallelism (default: 5)
 # - Binary content matching (满足/不满足) based on user description
 # - 5 mutually exclusive style categories (人物图/特写图/环境图/拼接图/信息图)
+# - VisionStruct detailed image analysis for comprehensive visual element extraction
 # - Optional likes count inclusion in analysis
 # - Transparent prompting - what you see in UI is what Gemini sees
 # - Structured JSON output with label, style_label, and reasoning
@@ -20,6 +21,7 @@ import json
 import logging
 import base64
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Optional, Literal, Callable
 from dataclasses import dataclass, asdict
@@ -68,6 +70,110 @@ STYLE_CATEGORIES = [
     "信息图",  # Infographic (text overlays, lists, menus)
 ]
 
+# VisionStruct prompt for detailed image analysis (vision-to-JSON)
+VISION_STRUCT_PROMPT = """You are VisionStruct, an advanced Computer Vision & Data Serialization Engine. Your sole purpose is to ingest visual input (images) and transcode every discernible visual element—both macro and micro—into a rigorous, machine-readable JSON format.
+
+CORE DIRECTIVE
+
+Do not summarize. Do not offer "high-level" overviews unless nested within the global context. You must capture 100% of the visual data available in the image. If a detail exists in pixels, it must exist in your JSON output. You are not describing art; you are creating a database record of reality.
+
+ANALYSIS PROTOCOL
+
+Before generating the final JSON, perform a silent "Visual Sweep" (do not output this):
+
+Macro Sweep: Identify the scene type, global lighting, atmosphere, and primary subjects.
+
+Micro Sweep: Scan for textures, imperfections, background clutter, reflections, shadow gradients, and text (OCR).
+
+Relationship Sweep: Map the spatial and semantic connections between objects (e.g., "holding," "obscuring," "next to").
+
+OUTPUT FORMAT (STRICT)
+
+You must return ONLY a single valid JSON object. Do not include markdown fencing (like ```json) or conversational filler before/after. Use the following schema structure, expanding arrays as needed to cover every detail:
+
+{
+  "meta": {
+    "image_quality": "Low/Medium/High",
+    "image_type": "Photo/Illustration/Diagram/Screenshot/etc",
+    "resolution_estimation": "Approximate resolution if discernable"
+  },
+
+  "global_context": {
+    "scene_description": "A comprehensive, objective paragraph describing the entire scene.",
+    "time_of_day": "Specific time or lighting condition",
+    "weather_atmosphere": "Foggy/Clear/Rainy/Chaotic/Serene",
+    "lighting": {
+      "source": "Sunlight/Artificial/Mixed",
+      "direction": "Top-down/Backlit/etc",
+      "quality": "Hard/Soft/Diffused",
+      "color_temp": "Warm/Cool/Neutral"
+    }
+  },
+
+  "color_palette": {
+    "dominant_hex_estimates": ["#RRGGBB", "#RRGGBB"],
+    "accent_colors": ["Color name 1", "Color name 2"],
+    "contrast_level": "High/Low/Medium"
+  },
+
+  "composition": {
+    "camera_angle": "Eye-level/High-angle/Low-angle/Macro",
+    "depth_of_field": "Shallow (blurry background) / Deep (everything in focus)",
+    "focal_point": "The primary element drawing the eye"
+  },
+
+  "objects": [
+    {
+      "id": "obj_001",
+      "label": "Primary Object Name",
+      "category": "Person/Vehicle/Furniture/etc",
+      "location": "Center/Top-Left/etc",
+      "prominence": "Foreground/Background",
+      "visual_attributes": {
+        "color": "Detailed color description",
+        "texture": "Rough/Smooth/Metallic/Fabric-type",
+        "material": "Wood/Plastic/Skin/etc",
+        "state": "Damaged/New/Wet/Dirty",
+        "dimensions_relative": "Large relative to frame"
+      },
+      "micro_details": [
+        "Scuff mark on left corner",
+        "stitching pattern visible on hem",
+        "reflection of window in surface",
+        "dust particles visible"
+      ],
+      "pose_or_orientation": "Standing/Tilted/Facing away",
+      "text_content": null
+    }
+  ],
+
+  "text_ocr": {
+    "present": true,
+    "content": [
+      {
+        "text": "The exact text written",
+        "location": "Sign post/T-shirt/Screen",
+        "font_style": "Serif/Handwritten/Bold",
+        "legibility": "Clear/Partially obscured"
+      }
+    ]
+  },
+
+  "semantic_relationships": [
+    "Object A is supporting Object B",
+    "Object C is casting a shadow on Object A",
+    "Object D is visually similar to Object E"
+  ]
+}
+
+CRITICAL CONSTRAINTS
+
+Granularity: Never say "a crowd of people." Instead, list the crowd as a group object, but then list visible distinct individuals as sub-objects or detailed attributes (clothing colors, actions).
+
+Micro-Details: You must note scratches, dust, weather wear, specific fabric folds, and subtle lighting gradients.
+
+Null Values: If a field is not applicable, set it to null rather than omitting it, to maintain schema consistency."""
+
 
 @dataclass
 class LabelingResult:
@@ -76,6 +182,17 @@ class LabelingResult:
     label: str  # Binary: "满足" or "不满足"
     style_label: str  # One of: "人物图", "特写图", "环境图", "拼接图", "信息图"
     reasoning: str  # Explanation in Chinese
+    error: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass
+class VisionStructResult:
+    """Structured result for VisionStruct image analysis"""
+    note_id: str
+    vision_struct: Optional[Dict[str, Any]] = None  # Full VisionStruct JSON
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -142,6 +259,12 @@ class GeminiLabeler:
             "X-Title": "SmartICE XHS Labeler"
         }
 
+        # Create session - keep system proxy (Cloudflare blocks direct connections)
+        # Retry logic handles intermittent proxy failures
+        self.session = requests.Session()
+        # trust_env=True (default) to use HTTP_PROXY/HTTPS_PROXY env vars
+        self.session.headers.update(self.headers)
+
         # Real-time tracking for cancellation support
         self._current_results: List[Optional[LabelingResult]] = []
         self._current_posts: List[Dict[str, Any]] = []
@@ -197,7 +320,7 @@ Output your analysis in this exact JSON format:
                 "Accept-Language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
                 "Referer": "https://www.xiaohongshu.com/"
             }
-            response = requests.get(url, headers=headers, timeout=10)
+            response = self.session.get(url, headers=headers, timeout=10)
             response.raise_for_status()
 
             # Detect image type from content-type header or URL
@@ -369,13 +492,27 @@ Output your analysis in this exact JSON format:
                 "max_tokens": 1024
             }
 
-            # Make the API request
-            response = requests.post(
-                self.OPENROUTER_BASE_URL,
-                headers=self.headers,
-                json=payload,
-                timeout=60
-            )
+            # Make the API request with retry logic for connection errors
+            max_retries = 3
+            response = None
+            for attempt in range(max_retries):
+                try:
+                    response = self.session.post(
+                        self.OPENROUTER_BASE_URL,
+                        json=payload,
+                        timeout=60
+                    )
+                    break  # Success, exit retry loop
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 2  # 2s, 4s backoff
+                        logger.warning(f"Connection error for {note_id}, retry {attempt + 1}/{max_retries} in {wait_time}s: {e}")
+                        time.sleep(wait_time)
+                    else:
+                        raise  # Re-raise on final attempt
+
+            if response is None:
+                raise ValueError("No response received after retries")
 
             # Log error details for debugging
             if response.status_code >= 400:
@@ -451,6 +588,232 @@ Output your analysis in this exact JSON format:
                 reasoning="",
                 error=error_str
             )
+
+    def analyze_vision_struct(
+        self,
+        post: Dict[str, Any],
+    ) -> VisionStructResult:
+        """
+        Generate detailed VisionStruct JSON analysis for a single post's cover image.
+        Uses VISION_STRUCT_PROMPT for comprehensive image-to-JSON conversion.
+
+        Args:
+            post: XHS post dictionary (must have note_id and cover_image)
+
+        Returns:
+            VisionStructResult with vision_struct JSON or error
+        """
+        note_id = post.get("note_id", "unknown")
+
+        try:
+            # Get cover image URL
+            cover_url = post.get("cover_image")
+            if not cover_url:
+                return VisionStructResult(
+                    note_id=note_id,
+                    vision_struct=None,
+                    error="No cover image available"
+                )
+
+            # Download and encode image
+            base64_url = self._download_image_as_base64(cover_url)
+            if not base64_url:
+                return VisionStructResult(
+                    note_id=note_id,
+                    vision_struct=None,
+                    error="Failed to download cover image"
+                )
+
+            # Prepare content parts with VisionStruct prompt
+            content_parts = [
+                {"type": "text", "text": VISION_STRUCT_PROMPT},
+                {"type": "image_url", "image_url": {"url": base64_url}}
+            ]
+
+            # Build the request payload - use higher max_tokens for detailed output
+            payload = {
+                "model": self.model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": content_parts
+                    }
+                ],
+                "temperature": 0.1,
+                "top_p": 0.95,
+                "max_tokens": 4096  # Larger for detailed VisionStruct output
+            }
+
+            # Make the API request with retry logic for connection errors
+            max_retries = 3
+            response = None
+            for attempt in range(max_retries):
+                try:
+                    response = self.session.post(
+                        self.OPENROUTER_BASE_URL,
+                        json=payload,
+                        timeout=120  # Longer timeout for detailed analysis
+                    )
+                    break  # Success, exit retry loop
+                except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                    if attempt < max_retries - 1:
+                        wait_time = (attempt + 1) * 2
+                        logger.warning(f"VisionStruct connection error for {note_id}, retry {attempt + 1}/{max_retries} in {wait_time}s: {e}")
+                        time.sleep(wait_time)
+                    else:
+                        raise
+
+            if response is None:
+                raise ValueError("No response received after retries")
+
+            # Log error details for debugging
+            if response.status_code >= 400:
+                logger.error(f"VisionStruct API error {response.status_code}: {response.text}")
+
+            # Check for rate limit errors
+            if response.status_code == 429:
+                retry_after = int(response.headers.get('Retry-After', 60))
+                raise RateLimitError(
+                    f"Rate limit exceeded. Please wait {retry_after}s before retrying.",
+                    retry_after=retry_after
+                )
+
+            response.raise_for_status()
+
+            # Parse the response
+            response_data = response.json()
+
+            # Extract the message content
+            if 'choices' not in response_data or len(response_data['choices']) == 0:
+                raise ValueError("No response choices returned from API")
+
+            response_text = response_data['choices'][0]['message']['content']
+            logger.debug(f"VisionStruct API response for {note_id}: {response_text[:200]}...")
+
+            # Parse JSON response
+            vision_struct_json = self._parse_json_response(response_text)
+
+            return VisionStructResult(
+                note_id=note_id,
+                vision_struct=vision_struct_json,
+                error=None
+            )
+
+        except RateLimitError:
+            raise
+        except Exception as e:
+            error_str = str(e)
+            logger.error(f"Error analyzing VisionStruct for {note_id}: {error_str}")
+
+            # Check for rate limit errors in exception message
+            if "429" in error_str or "rate limit" in error_str.lower() or "quota" in error_str.lower():
+                import re
+                retry_after = 60
+                match = re.search(r'(\d+(?:\.\d+)?)\s*s', error_str)
+                if match:
+                    retry_after = int(float(match.group(1))) + 5
+
+                raise RateLimitError(
+                    f"Rate limit exceeded. Please wait {retry_after}s before retrying.",
+                    retry_after=retry_after
+                )
+
+            return VisionStructResult(
+                note_id=note_id,
+                vision_struct=None,
+                error=error_str
+            )
+
+    def analyze_vision_struct_batch(
+        self,
+        posts: List[Dict[str, Any]],
+        progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
+        max_concurrency: int = 3  # Lower default for detailed analysis
+    ) -> List[VisionStructResult]:
+        """
+        Run VisionStruct analysis on multiple posts with concurrent processing.
+
+        Args:
+            posts: List of XHS post dictionaries
+            progress_callback: Optional callback(index, total, title, status)
+            max_concurrency: Maximum parallel API calls (default: 3)
+
+        Returns:
+            List of VisionStructResult in same order as input posts
+        """
+        total = len(posts)
+        results: List[Optional[VisionStructResult]] = [None] * total
+        completed_count = 0
+        rate_limit_hit = False
+        lock = threading.Lock()
+
+        logger.info(f"Starting VisionStruct batch analysis: {total} posts, concurrency={max_concurrency}")
+
+        def process_single(idx: int, post: Dict[str, Any]) -> tuple[int, VisionStructResult]:
+            """Process a single post and return (index, result)"""
+            nonlocal rate_limit_hit
+
+            # Skip if rate limit already hit
+            if rate_limit_hit:
+                return idx, VisionStructResult(
+                    note_id=post.get('note_id', 'unknown'),
+                    vision_struct=None,
+                    error="Skipped due to rate limit"
+                )
+
+            try:
+                result = self.analyze_vision_struct(post)
+                return idx, result
+            except RateLimitError as e:
+                with lock:
+                    rate_limit_hit = True
+                return idx, VisionStructResult(
+                    note_id=post.get('note_id', 'unknown'),
+                    vision_struct=None,
+                    error=f"Rate limit: {e}"
+                )
+
+        def update_progress(idx: int, result: VisionStructResult):
+            """Thread-safe progress update"""
+            nonlocal completed_count
+            with lock:
+                completed_count += 1
+                title = posts[idx].get('title', 'Untitled')[:50]
+                if progress_callback:
+                    if result.error:
+                        status = f"vision_struct error: {result.error[:30]}"
+                    else:
+                        status = "vision_struct done"
+                    progress_callback(completed_count, total, title, status)
+
+        # Execute with ThreadPoolExecutor for concurrent processing
+        with ThreadPoolExecutor(max_workers=max_concurrency) as executor:
+            futures = {
+                executor.submit(process_single, idx, post): idx
+                for idx, post in enumerate(posts)
+            }
+
+            for future in as_completed(futures):
+                try:
+                    idx, result = future.result()
+                    results[idx] = result
+                    update_progress(idx, result)
+                except Exception as e:
+                    idx = futures[future]
+                    note_id = posts[idx].get('note_id', 'unknown')
+                    error_result = VisionStructResult(
+                        note_id=note_id,
+                        vision_struct=None,
+                        error=str(e)
+                    )
+                    results[idx] = error_result
+                    update_progress(idx, error_result)
+
+        final_results = [r for r in results if r is not None]
+        success_count = sum(1 for r in final_results if r.vision_struct is not None)
+        logger.info(f"VisionStruct batch complete: {success_count}/{total} successful")
+
+        return final_results
 
     def get_current_results(self) -> Optional[tuple[List[Dict[str, Any]], List[LabelingResult]]]:
         """
