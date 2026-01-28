@@ -1,7 +1,7 @@
 # Xiaohongshu scraper module
-# Version: 2.6 - Added image downloading after scraping
-# Changes: Integrated image_downloader to cache cover images locally after scraping
-# Previous: Fixed parallel scraping support with proper timeouts
+# Version: 2.7 - Added publish date normalization to YYYY-MM-DD format
+# Changes: Convert relative dates (X天前, 昨天) and MM-DD to standard YYYY-MM-DD
+# Previous: Added image downloading after scraping
 
 import asyncio
 import json
@@ -9,7 +9,7 @@ import os
 import random
 import re
 from urllib.parse import quote
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 from playwright.async_api import Page, BrowserContext
 from data_models import XHSPost, ScrapeFilter, ScrapeTask
@@ -20,6 +20,71 @@ from database.repositories import PostRepository, AccountRepository, StatsReposi
 
 # Image downloader
 from image_downloader import download_post_images, get_local_image_filename
+
+
+def normalize_publish_date(raw_date: str) -> str:
+    """
+    Convert XHS relative/short date formats to standard YYYY-MM-DD format.
+
+    Supported formats:
+    - "X天前" -> today - X days
+    - "X小时前" -> today
+    - "昨天 HH:MM" -> yesterday
+    - "MM-DD" -> current year (or previous year if date is in future)
+    - Already formatted dates pass through
+    """
+    if not raw_date:
+        return ""
+
+    raw_date = raw_date.strip()
+    today = datetime.now()
+
+    # Pattern: X天前 (X days ago)
+    match = re.match(r'^(\d+)天前$', raw_date)
+    if match:
+        days = int(match.group(1))
+        result = today - timedelta(days=days)
+        return result.strftime('%Y-%m-%d')
+
+    # Pattern: X小时前 (X hours ago) -> same day
+    match = re.match(r'^(\d+)小时前$', raw_date)
+    if match:
+        return today.strftime('%Y-%m-%d')
+
+    # Pattern: 昨天 HH:MM (yesterday)
+    if raw_date.startswith('昨天'):
+        result = today - timedelta(days=1)
+        return result.strftime('%Y-%m-%d')
+
+    # Pattern: 今天 HH:MM (today)
+    if raw_date.startswith('今天'):
+        return today.strftime('%Y-%m-%d')
+
+    # Pattern: 刚刚 (just now)
+    if raw_date == '刚刚':
+        return today.strftime('%Y-%m-%d')
+
+    # Pattern: MM-DD (month-day, need to add year)
+    match = re.match(r'^(\d{1,2})-(\d{1,2})$', raw_date)
+    if match:
+        month = int(match.group(1))
+        day = int(match.group(2))
+        # Use current year, but if date is in future, use previous year
+        try:
+            result = today.replace(month=month, day=day)
+            if result > today:
+                result = result.replace(year=today.year - 1)
+            return result.strftime('%Y-%m-%d')
+        except ValueError:
+            # Invalid date (e.g., Feb 30)
+            return raw_date
+
+    # Pattern: YYYY-MM-DD (already formatted)
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', raw_date):
+        return raw_date
+
+    # Unknown format, return as-is
+    return raw_date
 
 # Paths relative to project root (parent of backend/)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -274,7 +339,7 @@ class XHSScraper:
                         author_profile_url=item['authorProfileUrl'],
                         likes=item['likes'],
                         cover_image=item['coverImage'],
-                        publish_date=item['publishDate'],
+                        publish_date=normalize_publish_date(item['publishDate']),
                         card_width=item['cardWidth'],
                         card_height=item['cardHeight'],
                         is_video=item['isVideo']  # Video detection flag
@@ -476,7 +541,7 @@ class XHSScraper:
                     author_profile_url=item['authorProfileUrl'],
                     likes=item['likes'],
                     cover_image=item['coverImage'],
-                    publish_date=item['publishDate'],
+                    publish_date=normalize_publish_date(item['publishDate']),
                     card_width=item['cardWidth'],
                     card_height=item['cardHeight'],
                     is_video=item['isVideo']
