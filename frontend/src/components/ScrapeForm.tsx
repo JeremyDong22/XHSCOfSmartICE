@@ -1,7 +1,7 @@
 // Scrape form component for starting scraping tasks
-// Version: 3.8 - Changed max posts from slider to editable input
-// Changes: Replace slider with number input for precise value entry
-// Previous: v3.7 - UI localization to Chinese
+// Version: 3.9 - Fix max posts input to allow clearing before typing new value
+// Changes: Use string state for maxPostsInput to allow empty intermediate state
+// Previous: v3.8 - Changed max posts from slider to editable input
 
 'use client';
 
@@ -20,7 +20,7 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
 
   const [accountId, setAccountId] = useState<number>(0);
   const [keyword, setKeyword] = useState('');
-  const [maxPosts, setMaxPosts] = useState(20);
+  const [maxPostsInput, setMaxPostsInput] = useState('20');
   const [minLikesInput, setMinLikesInput] = useState('');
   const [skipVideos, setSkipVideos] = useState(true); // Default: skip videos, only get images
 
@@ -45,6 +45,8 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
 
     // Parse minLikes from string input (empty = 0)
     const minLikes = minLikesInput.trim() === '' ? 0 : parseInt(minLikesInput, 10) || 0;
+    // Parse maxPosts from string input (empty or invalid = 1, clamp to 1-2000)
+    const maxPosts = Math.min(Math.max(parseInt(maxPostsInput, 10) || 1, 1), 2000);
 
     try {
       const response = await startScrapeAsync({
@@ -138,11 +140,20 @@ export default function ScrapeForm({ accounts, activeTasks, onTaskStart }: Scrap
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              value={maxPosts}
+              value={maxPostsInput}
               onChange={(e) => {
+                // Only allow digits, allow empty for intermediate state
                 const value = e.target.value.replace(/[^0-9]/g, '');
-                const num = parseInt(value, 10) || 1;
-                setMaxPosts(Math.min(Math.max(num, 1), 2000));
+                setMaxPostsInput(value);
+              }}
+              onBlur={() => {
+                // On blur, ensure valid value (clamp to 1-2000)
+                const num = parseInt(maxPostsInput, 10);
+                if (isNaN(num) || num < 1) {
+                  setMaxPostsInput('1');
+                } else if (num > 2000) {
+                  setMaxPostsInput('2000');
+                }
               }}
               placeholder="1-2000"
               className="w-full px-3.5 py-2.5 bg-stone-900 border border-stone-700 rounded-lg text-stone-50 text-sm placeholder-stone-600 focus:outline-none focus:border-[#D97757] focus:ring-2 focus:ring-[rgba(217,119,87,0.2)] transition-all font-mono"

@@ -480,11 +480,17 @@ export default function CleanedResultsViewer({
     return selectedFileData.posts.filter(p => p.style_label === style).length;
   };
 
-  // Filter and sort posts
+  // Filter, deduplicate, and sort posts
   const processedPosts = useMemo(() => {
     if (!selectedFileData?.posts) return [];
 
-    let result = [...selectedFileData.posts];
+    // Deduplicate by note_id (keep first occurrence)
+    const seen = new Set<string>();
+    let result = selectedFileData.posts.filter(post => {
+      if (seen.has(post.note_id)) return false;
+      seen.add(post.note_id);
+      return true;
+    });
 
     // Filter by label (supports both new and legacy formats)
     if (selectedLabelFilter !== 'all') {
