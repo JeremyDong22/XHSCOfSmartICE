@@ -1,14 +1,12 @@
 # OpenRouter Gemini Flash Image and Content Labeling Module
-# Version: 5.8 - Switch VisionStruct to Gemini 2.5 Flash for cost savings
+# Version: 5.9 - Increase default concurrency from 5 to 10 for faster processing
 # Changes:
-#   - Switch VISION_STRUCT_MODEL from Gemini 3 Flash to Gemini 2.5 Flash (~25% cost savings)
-#   - Add cost tracking fields to LabelingResult, VisionStructResult, BatchResult
-#   - Capture usage.cost from OpenRouter API responses
+#   - Increase max_concurrency default from 5 to 10 for both labeling and VisionStruct
 #   - VisionStruct uses Gemini 2.5 Flash (balance), labeling uses 2.0 Flash (cheapest)
-# Previous: v5.6 - Optimized VisionStruct prompt with 6-phase analysis framework
+# Previous: v5.8 - Switch VisionStruct to Gemini 2.5 Flash for cost savings
 #
 # Features:
-# - Concurrent batch processing with configurable parallelism (default: 5)
+# - Concurrent batch processing with configurable parallelism (default: 10)
 # - Binary content matching (满足/不满足) based on user description
 # - 5 mutually exclusive style categories (人物图/特写图/环境图/拼接图/信息图)
 # - VisionStruct detailed image analysis for comprehensive visual element extraction
@@ -427,7 +425,7 @@ class GeminiLabeler:
     # OpenRouter API configuration
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
     DEFAULT_MODEL = "google/gemini-2.0-flash-001"  # For labeling (cheaper)
-    VISION_STRUCT_MODEL = "google/gemini-2.5-flash-preview"  # For VisionStruct (balance of cost/quality)
+    VISION_STRUCT_MODEL = "google/gemini-2.5-flash"  # For VisionStruct (balance of cost/quality)
 
     def __init__(self, api_key: Optional[str] = None, model_name: str = None):
         """
@@ -932,7 +930,7 @@ Output your analysis in this exact JSON format:
         self,
         posts: List[Dict[str, Any]],
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
-        max_concurrency: int = 3  # Lower default for detailed analysis
+        max_concurrency: int = 10  # Concurrent API calls
     ) -> List[VisionStructResult]:
         """
         Run VisionStruct analysis on multiple posts with concurrent processing.
@@ -940,7 +938,7 @@ Output your analysis in this exact JSON format:
         Args:
             posts: List of XHS post dictionaries
             progress_callback: Optional callback(index, total, title, status)
-            max_concurrency: Maximum parallel API calls (default: 3)
+            max_concurrency: Maximum parallel API calls (default: 10)
 
         Returns:
             List of VisionStructResult in same order as input posts
@@ -1050,7 +1048,7 @@ Output your analysis in this exact JSON format:
         max_posts: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, str, str], None]] = None,
         include_likes: bool = False,
-        max_concurrency: int = 5
+        max_concurrency: int = 10
     ) -> BatchResult:
         """
         Label multiple XHS posts in batch with concurrent processing.
@@ -1064,7 +1062,7 @@ Output your analysis in this exact JSON format:
             max_posts: Maximum number of posts to process (None = all)
             progress_callback: Optional callback(index, total, title, status)
             include_likes: Whether to include likes count in analysis
-            max_concurrency: Maximum parallel API calls (default: 5)
+            max_concurrency: Maximum parallel API calls (default: 10)
 
         Returns:
             BatchResult containing all results with partial completion info

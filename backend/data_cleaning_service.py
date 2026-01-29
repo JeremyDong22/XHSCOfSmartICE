@@ -1,7 +1,7 @@
 # Data Cleaning Service with Gemini Integration
-# Version: 2.7 - Real-time partial result tracking via labeler
-# Changes: Query GeminiLabeler.get_current_results() for real-time progress on cancellation
-# Previous: v2.6 - Support partial result saving on manual cancellation
+# Version: 3.2 - Increase default concurrency from 5 to 10
+# Changes: Unified max_concurrency for labeling and VisionStruct (default: 10)
+# Previous: v3.1 - Add cost tracking for AI operations
 
 import os
 import json
@@ -11,7 +11,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from pathlib import Path
 
-from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult, BatchResult, RateLimitError
+from gemini_labeler import GeminiLabeler, LabelingMode, LabelingResult, BatchResult, RateLimitError, VisionStructResult
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +55,7 @@ class LabelByCondition:
     include_likes: bool = False  # Whether to include likes count in AI analysis
     user_description: str = ""  # User's description of what posts they want to filter
     full_prompt: str = ""  # Complete prompt sent to Gemini (for transparency)
+    enable_vision_struct: bool = False  # Whether to run VisionStruct on matched posts
 
     def to_labeling_mode(self) -> LabelingMode:
         """Convert UI selections to GeminiLabeler LabelingMode"""
@@ -88,7 +89,7 @@ class CleaningConfig:
     filter_by: Optional[FilterByCondition] = None
     label_by: Optional[LabelByCondition] = None
     output_filename: Optional[str] = None  # If None, auto-generated
-    max_concurrency: int = 5  # Number of parallel API calls for labeling
+    max_concurrency: int = 10  # Number of parallel API calls for labeling and VisionStruct
 
 
 class DataCleaningService:
@@ -235,6 +236,47 @@ class DataCleaningService:
 
         return labeled_posts, batch_result
 
+    def _apply_vision_struct(
+        self,
+        posts: List[Dict[str, Any]],
+        progress_callback: Optional[Callable[[str], None]] = None,
+        max_concurrency: int = 10
+    ) -> List[VisionStructResult]:
+        """
+        Apply VisionStruct detailed image analysis to posts.
+        Generates comprehensive JSON representation of visual elements.
+
+        Args:
+            posts: List of post dictionaries (should have cover_image)
+            progress_callback: Optional callback(message) for progress updates
+            max_concurrency: Number of parallel API calls (default: 10)
+
+        Returns:
+            List of VisionStructResult with vision_struct JSON
+        """
+        # Initialize labeler if not already done
+        if self.labeler is None:
+            self.labeler = GeminiLabeler(api_key=self.gemini_api_key)
+
+        logger.info(f"Starting VisionStruct analysis: {len(posts)} posts, concurrency: {max_concurrency}")
+
+        # Create a wrapper callback
+        def labeler_progress(idx: int, total: int, title: str, status: str):
+            if progress_callback:
+                progress_callback(f"[VisionStruct {idx}/{total}] {title} - {status}")
+
+        # Run batch VisionStruct analysis
+        results = self.labeler.analyze_vision_struct_batch(
+            posts=posts,
+            progress_callback=labeler_progress,
+            max_concurrency=max_concurrency
+        )
+
+        success_count = sum(1 for r in results if r.vision_struct is not None)
+        logger.info(f"VisionStruct analysis complete: {success_count}/{len(posts)} successful")
+
+        return results
+
     def clean_and_label(
         self,
         config: CleaningConfig,
@@ -329,9 +371,37 @@ class DataCleaningService:
             # Update partial result after labeling
             update_partial_result(all_posts, batch_result)
 
-        # Step 4: Calculate processing time
+        # Step 3.5: Apply VisionStruct analysis (if enabled) on matched posts only
+        vision_struct_count = 0
+        vision_struct_cost = 0.0
+        if config.label_by and config.label_by.enable_vision_struct:
+            matched_posts = [p for p in all_posts if p.get("label") == "满足"]
+            if matched_posts:
+                log(f"Starting VisionStruct analysis on {len(matched_posts)} matched posts...")
+                vision_results = self._apply_vision_struct(matched_posts, progress_callback, max_concurrency=config.max_concurrency)
+
+                # Create a lookup for vision_struct results by note_id
+                vision_lookup = {r.note_id: r.vision_struct for r in vision_results if r.vision_struct is not None}
+                vision_struct_count = len(vision_lookup)
+                # Calculate VisionStruct costs
+                vision_struct_cost = sum(r.cost for r in vision_results)
+
+                # Merge vision_struct into all_posts
+                for post in all_posts:
+                    if post.get("note_id") in vision_lookup:
+                        post["vision_struct"] = vision_lookup[post["note_id"]]
+
+                log(f"VisionStruct analysis complete: {vision_struct_count}/{len(matched_posts)} posts analyzed (cost: ${vision_struct_cost:.4f})")
+            else:
+                log("No matched posts for VisionStruct analysis")
+
+        # Step 4: Calculate processing time and costs
         end_time = datetime.now()
         processing_time = (end_time - start_time).total_seconds()
+
+        # Calculate total costs
+        labeling_cost = batch_result.total_cost if batch_result else 0.0
+        total_cost = labeling_cost + vision_struct_cost
 
         # Step 5: Determine if result is partial
         is_partial = batch_result.is_partial if batch_result else False
@@ -348,7 +418,13 @@ class DataCleaningService:
                 "total_posts_output": len(all_posts),
                 # Partial completion tracking
                 "is_partial": is_partial,
-                "successfully_labeled": successful_count
+                "successfully_labeled": successful_count,
+                # Cost tracking (in USD)
+                "cost": {
+                    "labeling_cost": round(labeling_cost, 6),
+                    "vision_struct_cost": round(vision_struct_cost, 6),
+                    "total_cost": round(total_cost, 6)
+                }
             },
             "posts": all_posts
         }
@@ -379,11 +455,15 @@ class DataCleaningService:
                 "include_likes": config.label_by.include_likes,
                 "user_description": config.label_by.user_description,
                 "full_prompt": config.label_by.full_prompt,
-                "style_categories": ["人物图", "特写图", "环境图", "拼接图", "信息图"]  # Fixed 5 categories
+                "style_categories": ["人物图", "特写图", "环境图", "拼接图", "信息图"],  # Fixed 5 categories
+                "enable_vision_struct": config.label_by.enable_vision_struct,
+                "vision_struct_count": vision_struct_count,  # Number of posts with VisionStruct analysis
+                "labeling_model": self.labeler.model_name if self.labeler else None,  # Model used for labeling
+                "vision_struct_model": self.labeler.VISION_STRUCT_MODEL if self.labeler and config.label_by.enable_vision_struct else None  # Model used for VisionStruct
             }
 
         status = "PARTIAL" if is_partial else "complete"
-        logger.info(f"Cleaning {status} in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts (labeled: {successful_count})")
+        logger.info(f"Cleaning {status} in {processing_time:.2f}s: {total_input} -> {len(all_posts)} posts (labeled: {successful_count}, cost: ${total_cost:.4f})")
 
         # Clear partial result on successful completion (no longer needed)
         self._current_partial_result = None
